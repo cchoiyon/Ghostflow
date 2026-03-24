@@ -2,51 +2,117 @@
 
 > **Visualize the hidden security architecture of your code.**
 
-Traditional threat modeling is the "ghost" in the development lifecycle—often talked about, rarely seen, and usually appearing too late to make a difference. **Ghostflow** is a developer-native VS Code extension that brings security architecture out of the shadows and into the IDE.
+Ghostflow is a developer-native VS Code extension that brings security architecture out of the shadows and into the IDE. It automatically scans your TypeScript/JavaScript source code, identifies trust boundaries and insecure patterns, and renders a live, interactive Data Flow Diagram — all without leaving your editor.
 
 ---
 
-## The Problem
-Security design is currently a bottleneck. Developers ship code in minutes, but architectural threat modeling (STRIDE) takes hours of manual diagramming and documentation in disconnected tools. 
+## ✨ Features
 
-* **Static Models:** Diagrams are outdated the moment the code changes.
-* **Context Gap:** AI coding assistants find bugs in files but are "blind" to system-wide trust boundaries.
-* **The "Chore" Factor:** Documentation feels like paperwork, not engineering.
+### 🔍 Core Scanner
+- **AST-Powered Analysis** — Uses the TypeScript Compiler API to traverse the Abstract Syntax Tree of your active file.
+- **Insecure Pattern Detection** — Automatically identifies:
+  - `fetch` / `axios` HTTP calls
+  - Hardcoded `localhost` / `127.0.0.1` bindings
+  - `process.env` access (potential secret exposure)
+  - Database connection strings (`mongodb://`, `postgres://`, `mysql://`)
+- **Non-Blocking** — Heavy AST traversal yields to the event loop via `setImmediate` every 500 nodes, keeping VS Code responsive.
+- **Live Sync** — Scans trigger automatically on every file save (`onDidSaveTextDocument`).
 
-##  The Vision
-Ghostflow treats **System Architecture as Code**. It automatically maps data flows, identifies trust boundaries, and suggests mitigations in real-time during the development process.
+### 🗺️ DFD Visualizer
+- **Connected Graph** — Nodes aren't just listed; they are connected by directed edges representing actual data flow relationships.
+- **Subgraph Grouping** — Nodes are organized into architectural regions:
+  - **External Network** — HTTP calls and outbound requests
+  - **Internal Services** — Localhost-bound processes
+  - **Data Layer** — Database connections and environment variables
+- **Color-Coded Trust Boundaries**:
+  - 🔴 **Red** arrows for insecure `http://` connections
+  - 🟢 **Green** arrows for secure `https://` connections
+- **Click-to-Jump** — Click any node in the diagram to jump directly to the corresponding line in your source code.
+- **VS Code Themed** — The visualizer respects your editor's dark/light theme.
 
-### Phase 1: The Visualizer (Current Focus)
-* **Live DFD Generation:** Uses `Tree-sitter` to parse source code and render live Data Flow Diagrams using the `D2` engine.
-* **Auto-Discovery:** Automatically identifies Web Servers, Databases, and External APIs based on library imports and connection strings.
-* **Trust Boundary Mapping:** Visualizes the "Red Line" where untrusted internet traffic meets internal logic.
-
-### Phase 2: AI-Powered Justification
-* **Automated STRIDE:** Leverages LLMs to analyze the diagram and suggest "Mitigated" or "N/A" justifications for every flow.
-* **One-Click Reports:** Generates audit-ready compliance reports (HTML/JSON) without leaving the editor.
-
-### Phase 3: Boundary Enforcement
-* **Architectural Guardrails:** Alerts developers when a code change creates a new, unauthenticated path across a trust boundary.
-* **Verification:** Checks configuration files to ensure that "Mitigated" claims (like TLS 1.3) are actually implemented in the code.
-
----
-
-##  Tech Stack
-* **Language:** TypeScript
-* **Extension Host:** VS Code Extension API
-* **Parsing:** Tree-sitter (Multi-language support)
-* **Diagramming:** D2 (Declarative Diagramming)
-* **Intelligence:** Gemini / OpenAI API integration
-
-##  Roadmap
-- [ ] **Alpha 0.1:** Basic D2 rendering in a VS Code Webview.
-- [ ] **Alpha 0.2:** Node.js/Express route discovery.
-- [ ] **Beta 1.0:** Automated STRIDE table generation via AI.
-- [ ] **V1.0:** Full marketplace launch.
+### 🛡️ STRIDE-Aligned
+The scanner is built on the **STRIDE** threat modeling methodology, treating every I/O operation, network call, and database interaction as a potential trust boundary transition.
 
 ---
 
-##  Contribution
-This repository is currently **Private**. Access is restricted to core contributors and early-stage partners. 
+## 🚀 Getting Started
 
-**"Security is not a checkbox; it’s a map. Let’s draw it."**
+### Prerequisites
+- [VS Code](https://code.visualstudio.com/) v1.80+
+- [Node.js](https://nodejs.org/) v18+
+
+### Install & Run
+```bash
+git clone https://github.com/cchoiyon/Ghostflow.git
+cd Ghostflow
+npm install
+npm run compile
+```
+
+### Test in VS Code
+1. Open the `Ghostflow` folder in VS Code.
+2. Press **`F5`** to launch the Extension Development Host.
+3. In the new window, open any `.ts` or `.js` file (or create a `test.ts` with sample code below).
+4. **Save** the file — the scanner runs automatically.
+5. Open the Command Palette (`Ctrl+Shift+P`) → **`Ghostflow: Show Live Visualizer`**.
+
+### Sample Test File
+```typescript
+const dbUrl = "mongodb://user:pass@localhost:27017/db";
+const secret = process.env.AWS_SECRET_KEY;
+
+function getUserData() {
+    axios.get("http://localhost:8080/api/users");
+    fetch("http://127.0.0.1/auth");
+}
+```
+
+---
+
+## 📁 Project Structure
+
+```
+Ghostflow/
+├── src/
+│   ├── extension.ts      # VS Code entry point, commands, and event wiring
+│   ├── Scanner.ts         # AST traversal and insecure pattern detection
+│   ├── FlowGraph.ts       # Node/Edge data structures for the DFD
+│   └── DFDWebview.ts      # Webview panel with Mermaid.js rendering
+├── package.json           # Extension manifest and dependencies
+├── tsconfig.json          # Strict TypeScript configuration
+└── .vscode/
+    ├── launch.json        # F5 debug configuration
+    └── tasks.json         # Build task for tsc watch
+```
+
+---
+
+## 🛣️ Roadmap
+
+- [x] **Alpha 0.1:** Core AST scanner with insecure pattern detection
+- [x] **Alpha 0.2:** Live DFD Visualizer with Mermaid.js in a Webview
+- [x] **Alpha 0.3:** Connected graph with edge inference and color-coded trust boundaries
+- [ ] **Beta 1.0:** Automated STRIDE table generation via AI
+- [ ] **Beta 1.1:** Multi-file scanning and cross-module data flow tracking
+- [ ] **V1.0:** Full VS Code Marketplace launch
+
+---
+
+## 🧰 Tech Stack
+| Component | Technology |
+|-----------|------------|
+| Language | TypeScript (strict mode) |
+| Extension Host | VS Code Extension API |
+| AST Parsing | TypeScript Compiler API |
+| Visualization | Mermaid.js |
+| Theming | VS Code CSS Variables |
+
+---
+
+## 🤝 Contributing
+
+This project is in active early development. Contributions, feedback, and feature requests are welcome!
+
+---
+
+**"Security is not a checkbox; it's a map. Let's draw it."** 👻
