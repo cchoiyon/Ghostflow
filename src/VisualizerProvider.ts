@@ -40,6 +40,8 @@ export class VisualizerProvider implements vscode.WebviewViewProvider {
                 });
             } else if (message.command === 'scanWorkspace') {
                 vscode.commands.executeCommand('ghostflow.scanWorkspace');
+            } else if (message.command === 'downloadPNG') {
+                this._handleDownloadPNG(message.data);
             }
         });
 
@@ -50,6 +52,27 @@ export class VisualizerProvider implements vscode.WebviewViewProvider {
         if (!this._view) return;
         this._view.webview.html = this._getHtmlForWebview(graph);
         this._view.description = `Scanned ${new Date().toLocaleTimeString()}`;
+    }
+
+    private async _handleDownloadPNG(dataUrl: string): Promise<void> {
+        const base64Data = dataUrl.replace(/^data:image\/png;base64,/, "");
+        const buffer = Buffer.from(base64Data, 'base64');
+        const uint8Array = new Uint8Array(buffer);
+
+        const uri = await vscode.window.showSaveDialog({
+            defaultUri: vscode.Uri.file(path.join(vscode.workspace.workspaceFolders?.[0].uri.fsPath || '', 'ghostflow-map.png')),
+            filters: { 'Images': ['png'] },
+            title: 'Download Architecture Map'
+        });
+
+        if (uri) {
+            try {
+                await vscode.workspace.fs.writeFile(uri, uint8Array);
+                vscode.window.showInformationMessage(`Successfully saved diagram to ${path.basename(uri.fsPath)}`);
+            } catch (err) {
+                vscode.window.showErrorMessage(`Failed to save diagram: ${err}`);
+            }
+        }
     }
 
     private _getEmptyHtml(): string {
@@ -233,12 +256,7 @@ export class VisualizerProvider implements vscode.WebviewViewProvider {
                 ctx.fillRect(0, 0, canvas.width, canvas.height);
                 ctx.drawImage(img, 0, 0);
                 const pngUrl = canvas.toDataURL("image/png");
-                const downloadLink = document.createElement("a");
-                downloadLink.href = pngUrl;
-                downloadLink.download = "ghostflow-map.png";
-                document.body.appendChild(downloadLink);
-                downloadLink.click();
-                document.body.removeChild(downloadLink);
+                vscodeApi.postMessage({ command: 'downloadPNG', data: pngUrl });
                 URL.revokeObjectURL(url);
             };
             img.src = url;
