@@ -14,7 +14,8 @@ const REMEDIATION_MAP: Record<string, string> = {
     'Information Disclosure:Environment Variables': 'Audit environment variables for sensitive values. Use SecretStorage APIs and ensure runtime logs do not leak env contents.',
     'Tampering:Localhost': 'Use configurable host bindings validated at deployment. Avoid hardcoding localhost in production code.',
     'Denial of Service:Localhost': 'Ensure services bind to production-appropriate addresses. Use health checks and load balancers.',
-    'Information Disclosure:insecure_edge': 'Encrypt all data flows crossing trust boundaries. Use TLS for network connections and encrypt data at rest.'
+    'Information Disclosure:insecure_edge': 'Encrypt all data flows crossing trust boundaries. Use TLS for network connections and encrypt data at rest.',
+    'tainted_flow': 'Never pass sensitive variables directly to network calls or logging. Use dedicated credential managers and sanitize all output.'
 };
 
 /**

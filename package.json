@@ -17,13 +17,29 @@
     "commands": [
       {
         "command": "ghostflow.scan",
-        "title": "Ghostflow: Scan Active File"
+        "title": "Ghostflow: Scan Active File",
+        "icon": "$(play)"
       },
       {
-        "command": "ghostflow.showVisualizer",
-        "title": "Ghostflow: Show Live Visualizer"
+        "command": "ghostflow.scanWorkspace",
+        "title": "Ghostflow: Scan Entire Workspace",
+        "icon": "$(repo-sync)"
       }
     ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "ghostflow.scan",
+          "when": "view == ghostflow.visualizerView || view == ghostflow.threatReport",
+          "group": "navigation@1"
+        },
+        {
+          "command": "ghostflow.scanWorkspace",
+          "when": "view == ghostflow.visualizerView || view == ghostflow.threatReport",
+          "group": "navigation@2"
+        }
+      ]
+    },
     "viewsContainers": {
       "activitybar": [
         {
@@ -35,6 +51,11 @@
     },
     "views": {
       "ghostflow-sidebar": [
+        {
+          "type": "webview",
+          "id": "ghostflow.visualizerView",
+          "name": "Architecture Map"
+        },
         {
           "type": "webview",
           "id": "ghostflow.threatReport",

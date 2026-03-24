@@ -59,6 +59,8 @@ export class ThreatReportProvider implements vscode.WebviewViewProvider {
                 if (this._onGenerateReport) {
                     this._onGenerateReport();
                 }
+            } else if (message.command === 'scanWorkspace') {
+                vscode.commands.executeCommand('ghostflow.scanWorkspace');
             }
         });
 
@@ -253,28 +255,45 @@ export class ThreatReportProvider implements vscode.WebviewViewProvider {
             color: var(--vscode-descriptionForeground);
             font-style: italic;
         }
-        #generate-btn {
-            display: block;
-            width: 100%;
-            padding: 8px 12px;
-            margin-bottom: 10px;
+        .action-buttons {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 12px;
+        }
+        .btn {
+            flex: 1;
+            padding: 8px 10px;
             background: var(--vscode-button-background);
             color: var(--vscode-button-foreground);
             border: none;
             border-radius: 4px;
-            font-size: 12px;
+            font-size: 11px;
             font-weight: 600;
             cursor: pointer;
             transition: background 0.15s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 4px;
         }
-        #generate-btn:hover {
+        .btn:hover {
             background: var(--vscode-button-hoverBackground);
+        }
+        .btn.secondary {
+            background: var(--vscode-button-secondaryBackground);
+            color: var(--vscode-button-secondaryForeground);
+        }
+        .btn.secondary:hover {
+            background: var(--vscode-button-secondaryHoverBackground);
         }
     </style>
 </head>
 <body>
     <h2>🛡️ STRIDE Threat Report</h2>
-    <button id="generate-btn" onclick="generateReport()">Generate PDF Report</button>
+    <div class="action-buttons">
+        <button class="btn" onclick="scanWorkspace()">🌐 Scan Workspace</button>
+        <button class="btn secondary" onclick="generateReport()">📄 PDF Report</button>
+    </div>
     ${sectionsHtml}
 
     <script>
@@ -289,6 +308,9 @@ export class ThreatReportProvider implements vscode.WebviewViewProvider {
         }
         function generateReport() {
             vscodeApi.postMessage({ command: 'generateReport' });
+        }
+        function scanWorkspace() {
+            vscodeApi.postMessage({ command: 'scanWorkspace' });
         }
     </script>
 </body>

@@ -46,6 +46,28 @@ export interface FlowEdge {
     label: string;
     /** Whether the connection uses a secure protocol (https vs http). */
     secure: boolean;
+    /** Whether this edge represents a tainted data flow (sensitive source → dangerous sink). */
+    tainted: boolean;
+}
+
+/**
+ * Represents a detected tainted data flow where a sensitive source variable
+ * is passed as an argument to a dangerous sink function.
+ *
+ * Security implication: tainted flows indicate that secrets, keys, or credentials
+ * may be leaked via network calls, file writes, or logging.
+ */
+export interface TaintedFlow {
+    /** Name of the sensitive source variable (e.g. 'apiKey', 'dbPassword'). */
+    sourceVar: string;
+    /** Name of the dangerous sink function (e.g. 'fetch', 'console.log'). */
+    sinkName: string;
+    /** FlowNode ID of the sink call site. */
+    sinkNodeId: string;
+    /** FlowNode ID of the source variable declaration. */
+    sourceNodeId: string;
+    /** If the taint originated from another file, the basename of that file. */
+    crossFileSource?: string;
 }
 
 /**
@@ -56,6 +78,7 @@ export interface FlowEdge {
 export class FlowGraph {
     private nodes: Map<string, FlowNode> = new Map();
     private edges: FlowEdge[] = [];
+    private taintedFlows: TaintedFlow[] = [];
 
     /**
      * Adds a new node to the graph representing an identified security pattern or boundary.
@@ -90,10 +113,27 @@ export class FlowGraph {
     }
 
     /**
-     * Clears all nodes and edges from the graph. Useful for re-scanning a file.
+     * Adds a tainted data flow record.
+     * @param flow The TaintedFlow to record.
+     */
+    public addTaintedFlow(flow: TaintedFlow): void {
+        this.taintedFlows.push(flow);
+    }
+
+    /**
+     * Retrieves all recorded tainted flows.
+     * @returns Array of TaintedFlow records.
+     */
+    public getTaintedFlows(): TaintedFlow[] {
+        return [...this.taintedFlows];
+    }
+
+    /**
+     * Clears all nodes, edges, and tainted flows from the graph.
      */
     public clear(): void {
         this.nodes.clear();
         this.edges = [];
+        this.taintedFlows = [];
     }
 }

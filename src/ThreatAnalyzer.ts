@@ -1,4 +1,4 @@
-import { FlowGraph, FlowNode, FlowEdge, NodeType } from './FlowGraph';
+import { FlowGraph, FlowNode, FlowEdge, TaintedFlow, NodeType } from './FlowGraph';
 
 /**
  * STRIDE threat modeling categories as defined by Microsoft's threat classification framework.
@@ -72,6 +72,12 @@ export class ThreatAnalyzer {
 
         for (const edge of edges) {
             this.analyzeEdge(edge, nodes, threats);
+        }
+
+        // Analyze tainted data flows
+        const taintedFlows = graph.getTaintedFlows();
+        for (const flow of taintedFlows) {
+            this.analyzeTaintedFlow(flow, nodes, threats);
         }
 
         // Sort by severity: Critical > High > Medium > Low
@@ -182,6 +188,35 @@ export class ThreatAnalyzer {
             filePath: sourceNode.filePath,
             line: sourceNode.line,
             character: sourceNode.character
+        });
+    }
+
+    /**
+     * Maps a TaintedFlow to a Critical severity threat entry.
+     * Produces the message format: "Tainted Data Flow: Sensitive variable [X]
+     * reached network sink [Y] on Line [Z]."
+     */
+    private analyzeTaintedFlow(flow: TaintedFlow, nodes: FlowNode[], threats: ThreatEntry[]): void {
+        const sinkNode = nodes.find(n => n.id === flow.sinkNodeId);
+        const sourceNode = nodes.find(n => n.id === flow.sourceNodeId);
+        const targetNode = sinkNode ?? sourceNode;
+
+        if (!targetNode) {
+            return;
+        }
+
+        const crossFileNote = flow.crossFileSource
+            ? ` (imported from ${flow.crossFileSource})`
+            : '';
+
+        threats.push({
+            category: StrideCategory.InformationDisclosure,
+            severity: ThreatSeverity.Critical,
+            message: `Tainted Data Flow: Sensitive variable '${flow.sourceVar}' reached network sink '${flow.sinkName}' on Line ${targetNode.line + 1}${crossFileNote}.`,
+            sourceLabel: `${flow.sourceVar} → ${flow.sinkName}`,
+            filePath: targetNode.filePath,
+            line: targetNode.line,
+            character: targetNode.character
         });
     }
 }
