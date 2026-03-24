@@ -231,8 +231,8 @@ async function performWorkspaceScan(
     }, async (progress, token) => {
         progress.report({ message: "Discovering files..." });
         
-        // Find all TS/JS files, ignoring node_modules and dist
-        const uris = await vscode.workspace.findFiles('**/*.{ts,js}', '{**/node_modules/**,**/dist/**,**/.git/**}');
+        // Find all TS/JS files, ignoring node_modules, dist, and compiled build output directories (.NET obj/bin)
+        const uris = await vscode.workspace.findFiles('**/*.{ts,js}', '{**/node_modules/**,**/dist/**,**/.git/**,**/bin/**,**/obj/**,**/out/**,**/build/**}');
         
         if (uris.length === 0) {
             vscode.window.showInformationMessage('Ghostflow: No TypeScript or JavaScript files found.');

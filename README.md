@@ -15,13 +15,15 @@ Ghostflow is a developer-native VS Code extension that brings security architect
 - **Non-Blocking** — Traversal yields to the event loop via `setImmediate`, keeping VS Code responsive.
 
 ### 🗺️ Hierarchical D3.js Visualizer
-- **File-Based Clustering** — Automatically groups nodes into "File Containers" for a clean, architectural view of your project.
-- **Edge Bundling** — Aggregates multiple data flows between files into a single bundle with a flow count label to eliminate clutter.
+- **Trust Boundary Enforcement** — Automatically groups connected AST nodes into stark, dashed red "Trust Boundaries" indicating their file container security context.
+- **Organic Left-to-Right Dynamics** — Evaluates structural architecture to map data flow natively from sources (left) to sinks (right), aggressively pruning entirely isolated nodes that don't transition across boundaries.
+- **Third-Party SDK Tracking** — Tracks sensitive values actively handed off into external `node_modules` dependencies as "SDK Handoffs", painting them distinctly as Insecure Flows.
+- **Edge Bundling** — Aggregates multiple data pipelines between files into a single bundled arc with dynamic flow-count relationship typography to eliminate intersection clutter.
 - **Interactive Navigation**:
-  - **Zoom to File**: Double-click any file container to center and focus on its internal nodes.
-  - **Click-to-Jump**: Click any node to jump directly to the corresponding line in source code.
-  - **Smooth Zoom/Pan**: Full mouse wheel and touch support for large-scale maps.
-- **Live Sync** — DFD updates instantly on every file save.
+  - **Zoom to File**: Double-click any Trust Boundary to center and focus on its internal nodes.
+  - **Click-to-Jump**: Click any node to jump intuitively directly to the corresponding AST line in the raw source code.
+  - **Smooth Zoom/Pan**: Full mouse wheel and touch integration for large-scale enterprise mapping.
+- **Live Sync** — Visualizer layout responds and adapts instantly on every file save.
 
 ### 🛡️ STRIDE Threat Intel & Reporting
 - **STRIDE-Categorized Findings** — Automatically maps tainted flows to Spoofing, Tampering, Repudiation, Information Disclosure, DoS, and Elevation of Privilege.
@@ -79,6 +81,8 @@ Ghostflow/
 - [x] **Beta 1.0:** Deep Taint Analysis & Cross-File Tracking
 - [x] **Beta 1.1:** Hierarchical D3.js Visualization & Edge Bundling
 - [x] **Beta 1.2:** Sidebar Integration & PDF Reporting
+- [x] **Beta 1.3:** Node Deduplication, Trust Boundaries, & SDK Dependencies
+- [x] **Beta 1.4:** High-Fidelity SVG Viewport PNG Export Engine
 - [ ] **V1.0:** Full VS Code Marketplace launch
 
 ---

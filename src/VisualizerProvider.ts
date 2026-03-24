@@ -169,17 +169,19 @@ export class VisualizerProvider implements vscode.WebviewViewProvider {
         #chart { width: 100%; height: 100%; }
         
         .cluster-rect {
-            fill: var(--container-bg);
-            stroke: var(--border);
-            stroke-width: 2;
-            rx: 10; ry: 10;
+            fill: transparent;
+            stroke: var(--vscode-charts-red);
+            stroke-width: 2px;
+            stroke-dasharray: 6,4;
+            rx: 6px; ry: 6px;
         }
         .cluster-label {
-            font-size: 12px;
+            font-size: 11px;
             font-weight: 800;
-            fill: var(--fg);
+            fill: var(--vscode-charts-red);
             pointer-events: none;
             text-transform: uppercase;
+            letter-spacing: 1px;
         }
         .node circle {
             stroke-width: 2.5;
@@ -277,21 +279,44 @@ export class VisualizerProvider implements vscode.WebviewViewProvider {
             ".edge { fill: none; stroke-opacity: 0.3; } " +
             "text { font-family: " + fontFamily + "; }";
 
+            // Extract the actual bounding box of the graph before transform
+            const gEl = svgEl.querySelector("g");
+            const originalTransform = gEl.getAttribute("transform");
+            gEl.removeAttribute("transform");
+
+            const gBox = gEl.getBBox();
+            const padding = 100; // Increase padding to prevent any outer text from clipping
+            const originalViewBox = svgEl.getAttribute("viewBox");
+            
+            const exportWidth = gBox.width + padding * 2;
+            const exportHeight = gBox.height + padding * 2;
+            const newViewBox = (gBox.x - padding) + " " + (gBox.y - padding) + " " + exportWidth + " " + exportHeight;
+            
+            const originalWidth = svgEl.getAttribute("width");
+            const originalHeight = svgEl.getAttribute("height");
+            
+            svgEl.setAttribute("viewBox", newViewBox);
+            svgEl.setAttribute("width", exportWidth);
+            svgEl.setAttribute("height", exportHeight);
+
             // Append style to SVG temporarily
             const styleEl = document.createElement("style");
             styleEl.textContent = resolvedCSS;
             svgEl.prepend(styleEl);
 
             const serializer = new XMLSerializer();
-            const source = '<?xml version="1.0" standalone="no"?>\r\n' + serializer.serializeToString(svgEl);
+            const source = '<?xml version="1.0" standalone="no"?>\\r\\n' + serializer.serializeToString(svgEl);
             
-            // Remove style tag immediately
+            // Remove style tag and restore attributes
             styleEl.remove();
+            svgEl.setAttribute("viewBox", originalViewBox);
+            if (originalWidth) svgEl.setAttribute("width", originalWidth);
+            if (originalHeight) svgEl.setAttribute("height", originalHeight);
+            if (originalTransform) gEl.setAttribute("transform", originalTransform);
             
             const canvas = document.createElement("canvas");
-            const bbox = svgEl.getBoundingClientRect();
-            canvas.width = bbox.width * 2; // High res
-            canvas.height = bbox.height * 2;
+            canvas.width = exportWidth * 2; // High res
+            canvas.height = exportHeight * 2;
             const ctx = canvas.getContext("2d");
             ctx.scale(2, 2);
             
@@ -315,27 +340,60 @@ export class VisualizerProvider implements vscode.WebviewViewProvider {
 
         // --- D3 Graph Logic ---
         const width = window.innerWidth;
-        const height = Math.max(800, rawNodes.length * 40); // Vertical space scaling
+        const viewportHeight = window.innerHeight;
+        const simHeight = Math.max(viewportHeight * 1.2, rawNodes.length * 50); // Ensure ample vertical spacing
 
         const svg = d3.select("#chart").append("svg")
             .attr("width", "100%")
             .attr("height", "100%")
-            .attr("viewBox", [0, 0, width, height])
+            .attr("viewBox", [0, 0, width, viewportHeight])
             .call(zoom);
 
         const g = svg.append("g");
 
+        // Define SVG markers for arrowheads
+        svg.append("defs").selectAll("marker")
+            .data(["end-tainted", "end-secure", "end-insecure", "end-border"])
+            .join("marker")
+            .attr("id", String)
+            .attr("viewBox", "0 -5 10 10")
+            .attr("refX", 22) // Offset from center to edge of radius
+            .attr("refY", 0)
+            .attr("orient", "auto")
+            .attr("markerWidth", 5)
+            .attr("markerHeight", 5)
+            .append("path")
+            .attr("d", "M0,-4 L8,0 L0,4")
+            .attr("fill", d => {
+                if (d === 'end-tainted') return "var(--tainted)";
+                if (d === 'end-secure') return "var(--secure)";
+                if (d === 'end-insecure') return "var(--insecure)";
+                return "var(--border)";
+            });
+
+        // Filter out isolated nodes that do not participate in any edge
+        const connectedNodeIds = new Set();
+        rawEdges.forEach(e => {
+            connectedNodeIds.add(e.from);
+            connectedNodeIds.add(e.to);
+        });
+
+        const nodes = rawNodes.map(d => ({ ...d })).filter(n => connectedNodeIds.has(n.id));
+
+        if (nodes.length === 0) {
+            document.body.innerHTML = '<div style="color:var(--vscode-charts-green); padding:50px; text-align:center; font-family:var(--vscode-font-family);"><h2 style="margin-bottom:10px;">&#10003; SYSTEM SECURE</h2><p>No active cross-boundary data flows or tainted chains were detected.</p></div>';
+            throw new Error("SYSTEM SECURE: Halting D3 execution because no active flows exist.");
+        }
+
         // Structured Hierarchical Layout
-        const files = d3.groups(rawNodes, d => d.filePath)
+        const files = d3.groups(nodes, d => d.filePath)
             .sort((a, b) => a[0].localeCompare(b[0]));
-            
-        const nodes = rawNodes.map(d => ({ ...d }));
         
         // Define Cluster Regions
         const clusterMap = new Map();
         files.forEach((f, i) => {
             clusterMap.set(f[0], {
-                y: (i + 0.5) * (height / files.length),
+                y: (i + 0.5) * (simHeight / Math.max(1, files.length)),
                 x: width / 2,
                 nodes: f[1]
             });
@@ -369,13 +427,14 @@ export class VisualizerProvider implements vscode.WebviewViewProvider {
 
         // simulation logic
         const simulation = d3.forceSimulation(nodes)
-            .force("link", d3.forceLink(internalEdges).id(d => d.id).distance(100).strength(0.5))
+            .force("link", d3.forceLink(internalEdges).id(d => d.id).distance(280).strength(0.8))
             .force("charge", d3.forceManyBody().strength(-200))
             .force("y", d3.forceY().y(d => clusterMap.get(d.filePath).y).strength(2))
             .force("x", d3.forceX().x(d => {
-                // Hierarchical Source -> Sink flow
-                if (d.type === 'DataStore') return width * 0.7; // Sinks on right
-                if (d.label.toLowerCase().includes('key') || d.label.toLowerCase().includes('secret')) return width * 0.3; // Sources on left
+                // True Left-to-Right flow
+                if (d.label === 'Sensitive Source' || d.label.toLowerCase().includes('key') || d.label.toLowerCase().includes('secret')) return width * 0.2; // Sources on left
+                if (d.type === 'ProcessNode') return width * 0.5; // Process in middle
+                if (d.type === 'DataStore') return width * 0.8; // External Sinks on right
                 return width * 0.5;
             }).strength(1))
             .force("collision", d3.forceCollide().radius(40))
@@ -386,21 +445,43 @@ export class VisualizerProvider implements vscode.WebviewViewProvider {
         
         clusters.append("rect").attr("class", "cluster-rect");
         clusters.append("text").attr("class", "cluster-label")
-            .text(d => d[0].split(/[\\\\/]/).pop().replace(/\\.(ts|js|tsx|jsx)$/, ''));
+            .text(d => "TRUST BOUNDARY: " + d[0].split(/[\\\\/]/).pop().replace(/\\.(ts|js|tsx|jsx)$/, ''));
 
         // Draw bundle edges
         const bundleLinks = g.append("g").selectAll("line").data(Array.from(bundles.values())).join("line")
             .attr("stroke", d => d.tainted ? "var(--tainted)" : "var(--border)")
             .attr("stroke-width", d => Math.min(8, 2 + d.count))
             .attr("stroke-dasharray", "4,4")
-            .attr("opacity", 0.4);
+            .attr("opacity", 0.4)
+            .attr("marker-end", d => d.tainted ? "url(#end-tainted)" : "url(#end-border)");
+
+        const bundleLabels = g.append("g").selectAll("text.bundle-label").data(Array.from(bundles.values())).join("text")
+            .attr("class", "edge-label bundle-label")
+            .attr("text-anchor", "middle")
+            .attr("dy", -5)
+            .attr("font-size", "10px")
+            .attr("font-weight", "bold")
+            .attr("fill", d => d.tainted ? "var(--tainted)" : "var(--fg)")
+            .text(d => d.count + " Cross-File Flow" + (d.count > 1 ? "s" : ""));
 
         // Draw internal edges
         const internalLinks = g.append("g").selectAll("path").data(internalEdges).join("path")
             .attr("fill", "none")
             .attr("stroke", d => d.tainted ? "var(--tainted)" : (d.secure ? "var(--secure)" : "var(--insecure)"))
             .attr("stroke-width", d => d.tainted ? 3 : 1.5)
-            .attr("opacity", 0.8);
+            .attr("opacity", 0.8)
+            .attr("marker-end", d => \`url(#end-\${d.tainted ? 'tainted' : (d.secure ? 'secure' : 'insecure')})\`);
+
+        const internalLabels = g.append("g").selectAll("text.internal-label").data(internalEdges).join("text")
+            .attr("class", "edge-label internal-label")
+            .attr("text-anchor", "middle")
+            .attr("dy", 14)
+            .attr("font-size", "9px")
+            .attr("paint-order", "stroke")
+            .attr("stroke", "var(--bg)")
+            .attr("stroke-width", 3)
+            .attr("fill", "var(--fg)")
+            .text(d => d.label);
 
         // Draw nodes
         const node = g.append("g").selectAll("g").data(nodes).join("g")
@@ -421,27 +502,47 @@ export class VisualizerProvider implements vscode.WebviewViewProvider {
 
         simulation.on("tick", () => {
             internalLinks.attr("d", d => {
-                const dx = d.target.x - d.source.x, dy = d.target.y - d.source.y, dr = Math.sqrt(dx * dx + dy * dy);
-                return "M" + d.source.x + "," + d.source.y + "A" + dr + "," + dr + " 0 0,1 " + d.target.x + "," + d.target.y;
+                return "M" + d.source.x + "," + d.source.y + "L" + d.target.x + "," + d.target.y;
             });
 
+            internalLabels
+                .attr("x", d => (d.source.x + d.target.x) / 2)
+                .attr("y", d => (d.source.y + d.target.y) / 2);
+
             bundleLinks
-                .attr("x1", d => d3.mean(nodes.filter(n => n.filePath === d.fileA), n => n.x))
-                .attr("y1", d => d3.mean(nodes.filter(n => n.filePath === d.fileA), n => n.y))
-                .attr("x2", d => d3.mean(nodes.filter(n => n.filePath === d.fileB), n => n.x))
-                .attr("y2", d => d3.mean(nodes.filter(n => n.filePath === d.fileB), n => n.y));
+                .attr("x1", d => d.x1 = d3.mean(nodes.filter(n => n.filePath === d.fileA), n => n.x))
+                .attr("y1", d => d.y1 = d3.mean(nodes.filter(n => n.filePath === d.fileA), n => n.y))
+                .attr("x2", d => d.x2 = d3.mean(nodes.filter(n => n.filePath === d.fileB), n => n.x))
+                .attr("y2", d => d.y2 = d3.mean(nodes.filter(n => n.filePath === d.fileB), n => n.y));
+
+            bundleLabels
+                .attr("x", d => (d.x1 + d.x2) / 2)
+                .attr("y", d => (d.y1 + d.y2) / 2);
 
             node.attr("transform", d => "translate(" + d.x + "," + d.y + ")");
 
             clusters.each(function(d) {
                 const fileNodes = nodes.filter(n => n.filePath === d[0]);
                 if (fileNodes.length === 0) return;
-                const minX = d3.min(fileNodes, n => n.x) - 30, minY = d3.min(fileNodes, n => n.y) - 40;
-                const maxX = d3.max(fileNodes, n => n.x) + 30, maxY = d3.max(fileNodes, n => n.y) + 20;
+                const minX = d3.min(fileNodes, n => n.x) - 60, minY = d3.min(fileNodes, n => n.y) - 40;
+                const maxX = d3.max(fileNodes, n => n.x) + 60, maxY = d3.max(fileNodes, n => n.y) + 40;
                 d3.select(this).select("rect").attr("x", minX).attr("y", minY).attr("width", Math.max(100, maxX - minX)).attr("height", Math.max(60, maxY - minY));
                 d3.select(this).select("text").attr("x", minX + 10).attr("y", minY + 18);
             });
         });
+        
+        // Auto-fit view after initial simulation settling
+        setTimeout(() => {
+            const gBox = svg.select("g").node().getBBox();
+            if (gBox.width === 0 || gBox.height === 0) return;
+            const scale = Math.min(width / (gBox.width + 100), viewportHeight / (gBox.height + 100));
+            const finalScale = Math.min(1.2, Math.max(0.2, scale));
+            const tx = (width - gBox.width * finalScale) / 2 - gBox.x * finalScale;
+            const ty = (viewportHeight - gBox.height * finalScale) / 2 - gBox.y * finalScale;
+            
+            svg.transition().duration(1000)
+               .call(zoom.transform, d3.zoomIdentity.translate(tx, ty).scale(finalScale));
+        }, 1200);
 
         window.addEventListener('resize', () => {
             svg.attr("viewBox", [0, 0, window.innerWidth, window.innerHeight]);

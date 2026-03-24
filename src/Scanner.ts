@@ -50,6 +50,8 @@ export class Scanner {
     private readonly YIELD_INTERVAL = 500;
     /** Tracks sensitive source variables found during the current scan. */
     private sensitiveSources: SensitiveSource[] = [];
+    /** Tracks imported third-party modules per file (localName -> moduleSpecifier) */
+    private thirdPartyImportsByFile: Map<string, Map<string, string>> = new Map();
 
     /**
      * Initializes the Scanner with a reference to a FlowGraph to populate.
@@ -244,18 +246,6 @@ export class Scanner {
 
             const specifierText = moduleSpecifier.text;
 
-            // Only resolve relative imports (starting with . or ..)
-            if (!specifierText.startsWith('.')) {
-                return;
-            }
-
-            const resolvedPath = path.resolve(currentDir, specifierText);
-            const sensitiveExports = this.projectScanner!.getExportsForModule(resolvedPath);
-
-            if (sensitiveExports.length === 0) {
-                return;
-            }
-
             // Get the imported names from the import clause
             const importedNames = new Set<string>();
             const importClause = node.importClause;
@@ -272,6 +262,26 @@ export class Scanner {
                         importedNames.add(element.name.text);
                     }
                 }
+            }
+
+            // Track third-party imports (anything not starting with . or /)
+            if (!specifierText.startsWith('.') && !specifierText.startsWith('/')) {
+                let fileMap = this.thirdPartyImportsByFile.get(document.fileName);
+                if (!fileMap) {
+                    fileMap = new Map();
+                    this.thirdPartyImportsByFile.set(document.fileName, fileMap);
+                }
+                for (const name of importedNames) {
+                    fileMap.set(name, specifierText);
+                }
+                return; // Normal taint propagation runs on relative bounds
+            }
+
+            const resolvedPath = path.resolve(currentDir, specifierText);
+            const sensitiveExports = this.projectScanner!.getExportsForModule(resolvedPath);
+
+            if (sensitiveExports.length === 0) {
+                return;
             }
 
             // Cross-reference imported names with sensitive exports
@@ -316,18 +326,36 @@ export class Scanner {
      * or credentials are passed to network calls, file writes, or logging functions.
      */
     private detectTaintedFlows(sourceFile: ts.SourceFile, document: vscode.TextDocument): void {
-        if (this.sensitiveSources.length === 0) {
+        // Scope taint tracking ONLY to variables defined or imported in this specific file
+        const localSources = this.sensitiveSources.filter(s => s.nodeId.startsWith(document.fileName));
+        if (localSources.length === 0) {
             return;
         }
 
-        const sensitiveNames = new Set(this.sensitiveSources.map(s => s.varName));
+        const sensitiveNames = new Set(localSources.map(s => s.varName));
+        const thirdPartyMap = this.thirdPartyImportsByFile.get(document.fileName) || new Map<string, string>();
 
         const visit = (node: ts.Node): void => {
             if (ts.isCallExpression(node)) {
                 const sinkName = node.expression.getText();
-                if (DANGEROUS_SINKS.includes(sinkName)) {
+                
+                let isThirdPartyCall = false;
+                let moduleName = '';
+                
+                // Extract root identifier of property chain (e.g. AWS from AWS.S3.upload)
+                let rootIdentifier = node.expression;
+                while (ts.isPropertyAccessExpression(rootIdentifier) || ts.isElementAccessExpression(rootIdentifier)) {
+                    rootIdentifier = rootIdentifier.expression;
+                }
+                
+                if (ts.isIdentifier(rootIdentifier) && thirdPartyMap.has(rootIdentifier.text)) {
+                    isThirdPartyCall = true;
+                    moduleName = thirdPartyMap.get(rootIdentifier.text)!;
+                }
+
+                if (DANGEROUS_SINKS.includes(sinkName) || isThirdPartyCall) {
                     // Check all arguments for sensitive variable references
-                    this.checkArgumentsForTaint(node, sinkName, sensitiveNames, document);
+                    this.checkArgumentsForTaint(node, sinkName, sensitiveNames, localSources, document, isThirdPartyCall ? moduleName : undefined);
                 }
             }
             ts.forEachChild(node, visit);
@@ -345,7 +373,9 @@ export class Scanner {
         callNode: ts.CallExpression,
         sinkName: string,
         sensitiveNames: Set<string>,
-        document: vscode.TextDocument
+        localSources: SensitiveSource[],
+        document: vscode.TextDocument,
+        thirdPartyModule?: string
     ): void {
         const { line: sinkLine, character: sinkChar } = document.positionAt(callNode.getStart());
         const sinkNodeId = `${document.fileName}:${sinkLine}:${sinkChar}`;
@@ -354,28 +384,46 @@ export class Scanner {
             if (ts.isIdentifier(node)) {
                 const name = node.text;
                 if (sensitiveNames.has(name)) {
-                    const source = this.sensitiveSources.find(s => s.varName === name);
+                    const source = localSources.find(s => s.varName === name);
                     if (source) {
-                        const crossLabel = source.crossFileSource
-                            ? `Tainted: ${name} → ${sinkName}  From ${source.crossFileSource}`
-                            : `Tainted: ${name} → ${sinkName}`;
+                        const crossLabel = thirdPartyModule
+                            ? `SDK Handoff: ${name}`
+                            : (source.crossFileSource
+                                ? `Tainted: ${name} → ${sinkName}  From ${source.crossFileSource}`
+                                : `Tainted: ${name} → ${sinkName}`);
+
+                        // Ensure target node physically exists on graph so Phase 3 isolation logic doesn't delete it
+                        if (!this.graph.getNodes().find(n => n.id === sinkNodeId)) {
+                            this.graph.addNode({
+                                id: sinkNodeId,
+                                type: NodeType.ProcessNode,
+                                label: thirdPartyModule ? `3rd-Party SDK (${thirdPartyModule})` : 'Dangerous Sink',
+                                description: thirdPartyModule ? `Sensitive data passed to external dependency API` : `Sensitive data passed to ${sinkName} sink`,
+                                filePath: document.fileName,
+                                line: sinkLine,
+                                character: sinkChar,
+                                rawValue: sinkName
+                            });
+                        }
 
                         // Record the tainted flow
-                        this.graph.addTaintedFlow({
-                            sourceVar: name,
-                            sinkName,
-                            sinkNodeId,
-                            sourceNodeId: source.nodeId,
-                            crossFileSource: source.crossFileSource
-                        });
+                        if (!thirdPartyModule) {
+                            this.graph.addTaintedFlow({
+                                sourceVar: name,
+                                sinkName,
+                                sinkNodeId,
+                                sourceNodeId: source.nodeId,
+                                crossFileSource: source.crossFileSource
+                            });
+                        }
 
                         // Create a tainted edge from source to sink
                         this.graph.addEdge({
                             from: source.nodeId,
                             to: sinkNodeId,
                             label: crossLabel,
-                            secure: false,
-                            tainted: true
+                            secure: thirdPartyModule ? false : false, // Insecure either way
+                            tainted: !thirdPartyModule // If third-party, set tainted=false so it renders as Insecure Flow (Orange)
                         });
                     }
                 }
@@ -418,14 +466,6 @@ export class Scanner {
                         tainted: false
                     });
                 }
-            } else {
-                this.graph.addEdge({
-                    from: httpNode.id,
-                    to: httpNode.id,
-                    label: url.startsWith('https://') ? 'HTTPS (External)' : 'HTTP (External)',
-                    secure: url.startsWith('https://'),
-                    tainted: false
-                });
             }
         }
 
