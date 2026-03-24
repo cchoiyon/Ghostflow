@@ -23,7 +23,25 @@
         "command": "ghostflow.showVisualizer",
         "title": "Ghostflow: Show Live Visualizer"
       }
-    ]
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "ghostflow-sidebar",
+          "title": "Ghostflow",
+          "icon": "media/ghostflow-icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "ghostflow-sidebar": [
+        {
+          "type": "webview",
+          "id": "ghostflow.threatReport",
+          "name": "Threat Report"
+        }
+      ]
+    }
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",
@@ -33,11 +51,13 @@
     "lint": "eslint src --ext ts"
   },
   "dependencies": {
+    "jspdf": "^4.2.1",
+    "jspdf-autotable": "^5.0.7",
     "typescript": "^5.0.0"
   },
   "devDependencies": {
-    "@types/vscode": "^1.80.0",
     "@types/node": "18.x",
+    "@types/vscode": "^1.80.0",
     "typescript": "^5.0.0"
   }
 }
