@@ -237,8 +237,56 @@ export class VisualizerProvider implements vscode.WebviewViewProvider {
 
         function downloadPNG() {
             const svgEl = document.querySelector("#chart svg");
+            
+            // Helper to resolve CSS variables to absolute colors (rgb/rgba)
+            function getAbsoluteColor(cssVarOrColor) {
+                const el = document.createElement("div");
+                el.style.color = cssVarOrColor;
+                el.style.display = "none";
+                document.body.appendChild(el);
+                const color = window.getComputedStyle(el).color;
+                el.remove();
+                return color;
+            }
+
+            const bg = getAbsoluteColor("var(--bg)");
+            const fg = getAbsoluteColor("var(--fg)");
+            const border = getAbsoluteColor("var(--border)");
+            const containerBg = getAbsoluteColor("var(--container-bg)");
+            const tainted = getAbsoluteColor("var(--tainted)");
+            const secure = getAbsoluteColor("var(--secure)");
+            const insecure = getAbsoluteColor("var(--insecure)");
+            const chartsBlue = getAbsoluteColor("var(--vscode-charts-blue)");
+            const chartsPurple = getAbsoluteColor("var(--vscode-charts-purple)");
+            const fontFamily = window.getComputedStyle(document.body).fontFamily;
+
+            const resolvedCSS = "svg { " +
+                "--bg: " + bg + "; " +
+                "--fg: " + fg + "; " +
+                "--border: " + border + "; " +
+                "--container-bg: " + containerBg + "; " +
+                "--tainted: " + tainted + "; " +
+                "--secure: " + secure + "; " +
+                "--insecure: " + insecure + "; " +
+                "--vscode-charts-blue: " + chartsBlue + "; " +
+                "--vscode-charts-purple: " + chartsPurple + "; " +
+            "} " +
+            ".cluster-rect { fill: var(--container-bg); stroke: var(--border); stroke-width: 2; rx: 10; ry: 10; } " +
+            ".cluster-label { font-size: 12px; font-weight: 800; fill: var(--fg); pointer-events: none; text-transform: uppercase; font-family: " + fontFamily + "; } " +
+            ".node circle { stroke-width: 2.5; } " +
+            ".edge { fill: none; stroke-opacity: 0.3; } " +
+            "text { font-family: " + fontFamily + "; }";
+
+            // Append style to SVG temporarily
+            const styleEl = document.createElement("style");
+            styleEl.textContent = resolvedCSS;
+            svgEl.prepend(styleEl);
+
             const serializer = new XMLSerializer();
-            const source = '<?xml version="1.0" standalone="no"?>\\r\\n' + serializer.serializeToString(svgEl);
+            const source = '<?xml version="1.0" standalone="no"?>\r\n' + serializer.serializeToString(svgEl);
+            
+            // Remove style tag immediately
+            styleEl.remove();
             
             const canvas = document.createElement("canvas");
             const bbox = svgEl.getBoundingClientRect();
@@ -252,12 +300,15 @@ export class VisualizerProvider implements vscode.WebviewViewProvider {
             const url = URL.createObjectURL(svgBlob);
             
             img.onload = function() {
-                ctx.fillStyle = getComputedStyle(document.body).getPropertyValue("--bg");
+                ctx.fillStyle = bg;
                 ctx.fillRect(0, 0, canvas.width, canvas.height);
                 ctx.drawImage(img, 0, 0);
                 const pngUrl = canvas.toDataURL("image/png");
                 vscodeApi.postMessage({ command: 'downloadPNG', data: pngUrl });
                 URL.revokeObjectURL(url);
+            };
+            img.onerror = function(err) {
+                console.error("Image loading failed", err);
             };
             img.src = url;
         }
