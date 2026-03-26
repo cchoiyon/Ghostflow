@@ -15,21 +15,11 @@ Ghostflow is a developer-native VS Code extension that brings security architect
 
 Security analysis is often disconnected from the code authoring process. Ghostflow bridges that gap by providing **instant, visual security feedback** directly in the IDE.
 
+- **🚀 Vibe with Confidence** — Built for the era of AI-first development. When you're moving fast and leveraging AI to generate logic, Ghostflow provides the visual safety net you need to ensure your "vibes" haven't accidentally bypassed your trust boundaries.
 - **Stop Data Leaks Early** — See "Sensitive Sources" (API keys, PII) flowing toward "Dangerous Sinks" in real-time.
 - **Understand Trust Boundaries** — Visual boundaries show you exactly where data transitions between local files, third-party SDKs, and the network.
 - **Positive Reinforcement** — When you add a sanitizer or encryption, Ghostflow rewards you with **Green Secure Lines** in the map.
 - **Privacy-First Design** — Built by developers for developers. Your code never leaves your machine.
-
----
-
-## ✨ Key Features
-
-### 🔍 Deep Taint Analysis & Sanitization
-- **Advanced Taint Tracking** — Tracks credentials, secrets, and tokens from declaration to execution.
-- **Sanitizer Awareness (Green Lines)** — Automatically recognizes security neutralizers (`encrypt()`, `hash()`, `sanitize()`). Data flows passing through these are rendered as **Secure Green Lines**.
-- **Smart Filtering** — Intelligently ignores `node_modules`, minified files, and build artifacts (`dist/`, `build/`) to focus exclusively on your unique application logic.
-- **Cross-File Awareness** — Resolves module imports and exports to track data flows that span your entire workspace.
-- **Non-Blocking Performance** — Incremental scanning and event-loop yielding via `setImmediate` ensure zero UI lag during deep AST traversal.
 
 ---
 
@@ -40,9 +30,15 @@ Ghostflow is currently specialized for the **modern web ecosystem**:
 - **TypeScript** (`.ts`, `.tsx`) - Full AST support for enterprise-scale typed codebases.
 - **JavaScript** (`.js`, `.jsx`) - Deep taint analysis for standard ESM and CommonJS modules.
 
-*Future roadmap includes cross-language support for Go and Python.*
-
 ---
+
+## ✨ Key Features
+
+### 🔍 Deep Taint Analysis & Sanitization
+- **Advanced Taint Tracking** — Tracks credentials, secrets, and tokens from declaration to execution.
+- **Sanitizer Awareness (Green Lines)** — Automatically recognizes security neutralizers (`encrypt()`, `hash()`, `sanitize()`). Data flows passing through these are rendered as **Secure Green Lines**.
+- **Smart Filtering** — Intelligently ignores `node_modules`, minified files, and build artifacts (`dist/`, `build/`) to focus exclusively on your unique application logic.
+- **Cross-File Awareness** — Resolves module imports and exports to track data flows that span your entire workspace.
 
 ### 🗺️ Hierarchical D3.js Visualizer
 - **Trust Boundary Enforcement** — Groups connected AST nodes into file-based security context boundaries.
@@ -52,23 +48,14 @@ Ghostflow is currently specialized for the **modern web ecosystem**:
   - **Click-to-Jump**: Navigate from a node in the map directly to the corresponding line in your source code.
   - **Smooth Viewport**: Professional zoom, pan, and high-fidelity **PNG/PDF Export** for security audits.
 
-### 📊 STRIDE Threat Reporting
-- **STRIDE-Categorized Findings** — Maps architectural flows to Spoofing, Tampering, Repudiation, Information Disclosure, DoS, and Elevation of Privilege.
-- **Professional PDF Export** — Generate executive-ready security assessment reports in seconds.
-
 ---
 
 ## 🔒 Privacy & Security
-
-We take your code's privacy as seriously as its security.
 
 ### Local Processing
 - **100% Local Scanning**: All AST parsing, taint tracking, and graph generation happen **entirely on your local machine**.
 - **Zero Exfiltration**: No source code, snippets, or even metadata are ever sent to external APIs or servers.
 - **Static Analysis Only**: Ghostflow performs safe static analysis of your AST. It does not execute your code.
-
-### Secure Storage
-- Ghostflow uses the VS Code `SecretStorage` API for any sensitive configuration and ignores common secret patterns in its own internal logs.
 
 ---
 
@@ -86,32 +73,11 @@ Ghostflow operates through a multi-stage security pipeline:
 
 ## 🚀 Getting Started
 
-### Prerequisites
-- [VS Code](https://code.visualstudio.com/) v1.80+
-- [Node.js](https://nodejs.org/) v18+
-
 ### Quick Install
 1. Clone the repository: `git clone https://github.com/cchoiyon/Ghostflow.git`
 2. Install dependencies: `npm install`
 3. Compile the extension: `npm run compile`
 4. Press `F5` in VS Code to launch the **Extension Development Host**.
-
----
-
-## 📁 Project Structure
-
-```bash
-Ghostflow/
-├── src/
-│   ├── Scanner.ts            # Core Taint Engine & Sanitization logic
-│   ├── ProjectScanner.ts     # Workspace-wide indexing & caching
-│   ├── FlowGraph.ts          # Hierarchical Graph Data Structures
-│   ├── VisualizerProvider.ts # D3.js Hierarchical Renderer
-│   ├── ThreatAnalyzer.ts     # STRIDE Risk Analysis
-│   └── ThreatReportProvider.ts # Sidebar Reporting UI
-├── media/                    # Local Webview assets (HTML/JS/CSS)
-└── package.json               # VS Code Extension manifest
-```
 
 ---
 
