@@ -29,6 +29,20 @@ Security analysis is often disconnected from the code authoring process. Ghostfl
 - **Sanitizer Awareness (Green Lines)** — Automatically recognizes security neutralizers (`encrypt()`, `hash()`, `sanitize()`). Data flows passing through these are rendered as **Secure Green Lines**.
 - **Smart Filtering** — Intelligently ignores `node_modules`, minified files, and build artifacts (`dist/`, `build/`) to focus exclusively on your unique application logic.
 - **Cross-File Awareness** — Resolves module imports and exports to track data flows that span your entire workspace.
+- **Non-Blocking Performance** — Incremental scanning and event-loop yielding via `setImmediate` ensure zero UI lag during deep AST traversal.
+
+---
+
+## 🏗️ Supported Languages
+
+Ghostflow is currently specialized for the **modern web ecosystem**:
+
+- **TypeScript** (`.ts`, `.tsx`) - Full AST support for enterprise-scale typed codebases.
+- **JavaScript** (`.js`, `.jsx`) - Deep taint analysis for standard ESM and CommonJS modules.
+
+*Future roadmap includes cross-language support for Go and Python.*
+
+---
 
 ### 🗺️ Hierarchical D3.js Visualizer
 - **Trust Boundary Enforcement** — Groups connected AST nodes into file-based security context boundaries.
