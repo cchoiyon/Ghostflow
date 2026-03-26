@@ -71,13 +71,17 @@ export function activate(context: vscode.ExtensionContext) {
         }
 
         const activeFile = vscode.window.activeTextEditor?.document.fileName ?? 'Unknown';
-        const fileName = path.basename(activeFile);
+        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+        
+        // If a workspace scan is active (i.e. graph has nodes from multiple files or we have a workspace folder),
+        // prioritize the workspace folder name over the active text editor's filename to prevent misattribution.
+        const fileName = workspaceFolder ? workspaceFolder.name : path.basename(activeFile);
 
         try {
             const pdfBuffer = reportGenerator.generate(threats, fileName);
 
-            const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-            const saveDir = workspaceFolder ?? path.dirname(activeFile);
+            const workspacePath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+            const saveDir = workspacePath ?? path.dirname(activeFile);
             const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
             const pdfFileName = `ghostflow-report-${timestamp}.pdf`;
             const pdfPath = path.join(saveDir, pdfFileName);
@@ -121,8 +125,18 @@ export function activate(context: vscode.ExtensionContext) {
     // --- Global Auto-Refresh on Save ---
     const onSaveEvent = vscode.workspace.onDidSaveTextDocument(async (document) => {
         if (document.languageId === 'typescript' || document.languageId === 'javascript') {
+            const fileName = document.fileName;
+            // Ignore test files and type definitions to reduce noise
+            if (fileName.endsWith('.test.ts') || 
+                fileName.endsWith('.spec.ts') || 
+                fileName.endsWith('.test.js') || 
+                fileName.endsWith('.spec.js') || 
+                fileName.endsWith('.d.ts')) {
+                return;
+            }
+
             // Incrementally update the cross-file cache for just the saved file
-            await projectScanner.updateFile(document.fileName);
+            await projectScanner.updateFile(fileName);
             await performScan(document, scanner, graph, threatAnalyzer, visualizerProvider, threatReportProvider);
         }
     });
@@ -156,30 +170,35 @@ async function performScan(
         await scanner.scanDocument(document);
 
         const nodes = graph.getNodes();
+        const threats = threatAnalyzer.analyze(graph);
         const diagnostics: vscode.Diagnostic[] = [];
 
-        nodes.forEach(node => {
-            const startPos = new vscode.Position(node.line, node.character);
-            const endPos = new vscode.Position(node.line, node.character + 10);
-            const range = new vscode.Range(startPos, endPos);
+        threats.forEach(threat => {
+            if (threat.filePath === document.fileName) {
+                const startPos = new vscode.Position(threat.line, threat.character);
+                const endPos = new vscode.Position(threat.line, Math.max(0, threat.character + 10)); // Approximate width
+                const range = new vscode.Range(startPos, endPos);
 
-            const diagnostic = new vscode.Diagnostic(
-                range,
-                `Ghostflow Boundary [${node.type}]: ${node.label} - ${node.description}`,
-                vscode.DiagnosticSeverity.Warning
-            );
-            diagnostics.push(diagnostic);
-            ghostflowOutputChannel.appendLine(`Found boundary: ${node.label} at line ${node.line + 1}`);
+                const severity = (threat.severity === ThreatSeverity.Critical || threat.severity === ThreatSeverity.High)
+                    ? vscode.DiagnosticSeverity.Error
+                    : vscode.DiagnosticSeverity.Warning;
+
+                const diagnostic = new vscode.Diagnostic(
+                    range,
+                    `Ghostflow Threat [${threat.category}]: ${threat.message}`,
+                    severity
+                );
+                diagnostics.push(diagnostic);
+            }
         });
 
         diagnosticCollection.set(document.uri, diagnostics);
-        ghostflowOutputChannel.appendLine(`[${new Date().toLocaleTimeString()}] Scan complete. Found ${nodes.length} trust boundaries.`);
+        ghostflowOutputChannel.appendLine(`[${new Date().toLocaleTimeString()}] Scan complete. Found ${nodes.length} trust boundaries and ${diagnostics.length} threats in this file.`);
 
         // Update Sidebar Visualizer
         visualizerProvider.update(graph);
 
         // Update STRIDE Threat Report
-        const threats = threatAnalyzer.analyze(graph);
         threatReportProvider.updateThreats(threats);
 
         // Update Status Bar Health Score
@@ -271,6 +290,35 @@ async function performWorkspaceScan(
             const nodes = graph.getNodes();
             const threats = threatAnalyzer.analyze(graph);
             
+            // Group threats by file and set diagnostics globally
+            diagnosticCollection.clear();
+            const diagnosticsByFile = new Map<string, vscode.Diagnostic[]>();
+            
+            threats.forEach(threat => {
+                const fileDiags = diagnosticsByFile.get(threat.filePath) ?? [];
+                
+                const startPos = new vscode.Position(threat.line, threat.character);
+                const endPos = new vscode.Position(threat.line, Math.max(0, threat.character + 10)); // Approximate width
+                const range = new vscode.Range(startPos, endPos);
+
+                const severity = (threat.severity === ThreatSeverity.Critical || threat.severity === ThreatSeverity.High)
+                    ? vscode.DiagnosticSeverity.Error
+                    : vscode.DiagnosticSeverity.Warning;
+
+                const diagnostic = new vscode.Diagnostic(
+                    range,
+                    `Ghostflow Threat [${threat.category}]: ${threat.message}`,
+                    severity
+                );
+                
+                fileDiags.push(diagnostic);
+                diagnosticsByFile.set(threat.filePath, fileDiags);
+            });
+
+            diagnosticsByFile.forEach((diags, fPath) => {
+                diagnosticCollection.set(vscode.Uri.file(fPath), diags);
+            });
+
             // Update Sidebar Visualizer and Report
             visualizerProvider.update(graph);
             threatReportProvider.updateThreats(threats);

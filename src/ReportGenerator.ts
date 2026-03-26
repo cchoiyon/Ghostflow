@@ -15,7 +15,13 @@ const REMEDIATION_MAP: Record<string, string> = {
     'Tampering:Localhost': 'Use configurable host bindings validated at deployment. Avoid hardcoding localhost in production code.',
     'Denial of Service:Localhost': 'Ensure services bind to production-appropriate addresses. Use health checks and load balancers.',
     'Information Disclosure:insecure_edge': 'Encrypt all data flows crossing trust boundaries. Use TLS for network connections and encrypt data at rest.',
-    'tainted_flow': 'Never pass sensitive variables directly to network calls or logging. Use dedicated credential managers and sanitize all output.'
+    'tainted_flow': 'Never pass sensitive variables directly to network calls or logging. Use dedicated credential managers and sanitize all output.',
+    'Information Disclosure:Database Operation': 'Ensure database queries are parameterized. Never interpolate user input or secrets directly into query strings.',
+    'Tampering:Database Operation': 'Use parameterized queries or ORM methods. Validate all inputs before passing to database operations.',
+    'Elevation of Privilege:Code Execution': 'Eliminate eval() and dynamic Function() calls. Use safe alternatives like JSON.parse() or sandboxed execution.',
+    'Tampering:Code Execution': 'Remove dynamic code execution. If unavoidable, use strict input validation and sandboxing.',
+    'Elevation of Privilege:Shell Execution': 'Avoid spawning shell commands with user-controlled input. Use parameterized APIs and allowlists for permitted commands.',
+    'Tampering:Shell Execution': 'Sanitize all inputs passed to child_process calls. Prefer execFile over exec to avoid shell interpolation.'
 };
 
 /**

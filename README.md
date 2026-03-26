@@ -8,11 +8,12 @@ Ghostflow is a developer-native VS Code extension that brings security architect
 
 ## ✨ Features
 
-### 🔍 Deep AST Taint Analysis
+### 🛡️ Deep Taint Analysis & Sanitization
 - **Advanced Taint Tracking** — Tracks "Sensitive Sources" (API keys, secrets, tokens) into "Dangerous Sinks" (network calls, file writes, logging).
+- **Sanitizer Awareness (Green Lines)** — Automatically recognizes security neutralizers (`encrypt()`, `hash()`, `sanitize()`). Data flows passing through these are rendered as **Secure Green Lines** in the visualizer and resolved from the threat report.
+- **Smart Node Filtering** — Intelligently ignores `node_modules`, minified files, and build artifacts to focus exclusively on your unique application logic.
 - **Cross-File Awareness** — Resolves imports and exports to track data flows that span across multiple files in the workspace.
-- **Incremental Scanning** — Uses mtime-based caching for high-performance AST indexing without blocking the UI.
-- **Non-Blocking** — Traversal yields to the event loop via `setImmediate`, keeping VS Code responsive.
+- **Non-Blocking Performance** — Incremental scanning and event-loop yielding via `setImmediate` ensure zero UI lag during deep AST traversal.
 
 ### 🗺️ Hierarchical D3.js Visualizer
 - **Trust Boundary Enforcement** — Automatically groups connected AST nodes into stark, dashed red "Trust Boundaries" indicating their file container security context.
@@ -61,12 +62,13 @@ npm run compile
 Ghostflow/
 ├── src/
 │   ├── extension.ts          # Core extension logic and command registration
-│   ├── Scanner.ts            # Deep AST Taint Engine & resolution logic
+│   ├── Scanner.ts            # Deep AST Taint Engine & Sanitization logic
 │   ├── ProjectScanner.ts     # Workspace-wide indexing and export caching
 │   ├── FlowGraph.ts          # Hierarchical Graph data structures
 │   ├── VisualizerProvider.ts # D3.js Hierarchical Renderer
 │   ├── ThreatAnalyzer.ts     # STRIDE-based risk logic
 │   └── ThreatReportProvider.ts # Sidebar reporting UI & PDF generation
+├── media/                    # External HTML templates & D3 assets
 ├── package.json               # Extension manifest and UI contributions
 └── tsconfig.json              # Strict TypeScript configuration
 ```
@@ -83,6 +85,7 @@ Ghostflow/
 - [x] **Beta 1.2:** Sidebar Integration & PDF Reporting
 - [x] **Beta 1.3:** Node Deduplication, Trust Boundaries, & SDK Dependencies
 - [x] **Beta 1.4:** High-Fidelity SVG Viewport PNG Export Engine
+- [x] **Beta 1.5:** Sanitizer Tracking (Green Lines) & Smart Node Filtering
 - [ ] **V1.0:** Full VS Code Marketplace launch
 
 ---

@@ -17,10 +17,7 @@ export interface SensitiveExport {
     character: number;
 }
 
-/** Case-insensitive patterns that identify sensitive variable names. */
-const SENSITIVE_PATTERNS: ReadonlyArray<string> = [
-    'key', 'secret', 'pass', 'password', 'token', 'credential', 'auth', 'apikey'
-];
+import { SENSITIVE_PATTERNS } from './constants';
 
 /**
  * Cached scan result for a single file, keyed by modification time.
@@ -53,7 +50,7 @@ export class ProjectScanner {
      * @param rootDir Absolute path to the workspace root directory.
      */
     public async scanWorkspace(rootDir: string): Promise<void> {
-        const tsFiles = this.findSourceFiles(rootDir);
+        const tsFiles = await this.findSourceFiles(rootDir);
 
         for (const filePath of tsFiles) {
             await this.scanFileIfChanged(filePath);
@@ -102,7 +99,7 @@ export class ProjectScanner {
      */
     private async scanFileIfChanged(filePath: string): Promise<void> {
         try {
-            const stat = fs.statSync(filePath);
+            const stat = await fs.promises.stat(filePath);
             const mtime = stat.mtimeMs;
 
             const cached = this.cache.get(filePath);
@@ -113,7 +110,7 @@ export class ProjectScanner {
             // Yield to event loop before heavy work
             await new Promise(resolve => setImmediate(resolve));
 
-            const content = fs.readFileSync(filePath, 'utf-8');
+            const content = await fs.promises.readFile(filePath, 'utf-8');
             const sourceFile = ts.createSourceFile(
                 filePath,
                 content,
@@ -194,21 +191,31 @@ export class ProjectScanner {
 
     /**
      * Recursively finds all .ts and .js source files in a directory,
-     * excluding node_modules and dist directories.
+     * excluding build and output directories to prevent scanning compiled artifacts.
      */
-    private findSourceFiles(dir: string): string[] {
+    private async findSourceFiles(dir: string): Promise<string[]> {
         const results: string[] = [];
         try {
-            const entries = fs.readdirSync(dir, { withFileTypes: true });
+            const entries = await fs.promises.readdir(dir, { withFileTypes: true });
+            
+            const excludedDirs = new Set(['node_modules', 'dist', '.git', 'out', 'build', 'coverage', '.next', '.nuxt']);
+            
             for (const entry of entries) {
                 const fullPath = path.join(dir, entry.name);
+                
                 if (entry.isDirectory()) {
-                    if (entry.name === 'node_modules' || entry.name === 'dist' || entry.name === '.git') {
+                    if (excludedDirs.has(entry.name)) {
                         continue;
                     }
-                    results.push(...this.findSourceFiles(fullPath));
+                    const nestedFiles = await this.findSourceFiles(fullPath);
+                    results.push(...nestedFiles);
                 } else if (entry.isFile() && (entry.name.endsWith('.ts') || entry.name.endsWith('.js'))) {
-                    results.push(fullPath);
+                    // Ignore test files and type definitions
+                    if (!entry.name.endsWith('.test.ts') && 
+                        !entry.name.endsWith('.spec.ts') && 
+                        !entry.name.endsWith('.d.ts')) {
+                        results.push(fullPath);
+                    }
                 }
             }
         } catch {

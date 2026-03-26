@@ -85,7 +85,6 @@ export class ThreatReportProvider implements vscode.WebviewViewProvider {
         }
 
         const threats = this._threats;
-        const threatsJson = JSON.stringify(threats);
 
         // Group threats by STRIDE category for organized display
         const grouped = new Map<string, ThreatEntry[]>();
@@ -133,7 +132,7 @@ export class ThreatReportProvider implements vscode.WebviewViewProvider {
                     const escapedFilePath = this._escapeHtml(entry.filePath).replace(/\\/g, '\\\\');
                     sectionsHtml += `
                         <div class="threat-item ${severityClass}"
-                             onclick="jumpTo('${escapedFilePath}', ${entry.line}, ${entry.character})">
+                             data-filepath="${escapedFilePath}" data-line="${entry.line}" data-character="${entry.character}">
                             <span class="severity-dot ${severityClass}"></span>
                             <div class="threat-content">
                                 <div class="threat-message">${this._escapeHtml(entry.message)}</div>
@@ -146,175 +145,32 @@ export class ThreatReportProvider implements vscode.WebviewViewProvider {
             }
         }
 
-        this._view.webview.html = /* html */`<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Threat Report</title>
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body {
-            background: var(--vscode-sideBar-background);
-            color: var(--vscode-sideBar-foreground);
-            font-family: var(--vscode-font-family);
-            font-size: 12px;
-            padding: 8px;
+        const cspNonce = this.getNonce();
+        const webviewCspSource = this._view.webview.cspSource;
+        const templateUri = vscode.Uri.joinPath(this._extensionUri, 'media', 'threatReport.html');
+        
+        let htmlTemplate = '';
+        try {
+            const fs = require('fs');
+            htmlTemplate = fs.readFileSync(templateUri.fsPath, 'utf8');
+        } catch (err) {
+            this._view.webview.html = `<html><body>Failed to load template: ${err}</body></html>`;
+            return;
         }
-        h2 {
-            font-size: 13px;
-            font-weight: 600;
-            padding: 6px 0;
-            border-bottom: 1px solid var(--vscode-panel-border);
-            margin-bottom: 8px;
-            color: var(--vscode-editor-foreground);
-        }
-        .summary-bar {
-            display: flex;
-            gap: 6px;
-            flex-wrap: wrap;
-            margin-bottom: 10px;
-        }
-        .badge {
-            padding: 2px 8px;
-            border-radius: 10px;
-            font-size: 11px;
-            font-weight: 600;
-        }
-        .badge.critical { background: #dc262620; color: #f87171; border: 1px solid #f8717140; }
-        .badge.high { background: #f9731620; color: #fb923c; border: 1px solid #fb923c40; }
-        .badge.medium { background: #eab30820; color: #fbbf24; border: 1px solid #fbbf2440; }
-        .badge.low { background: #22c55e20; color: #4ade80; border: 1px solid #4ade8040; }
-        .category-section {
-            margin-bottom: 12px;
-        }
-        h3 {
-            font-size: 12px;
-            font-weight: 600;
-            padding: 4px 0;
-            color: var(--vscode-editor-foreground);
-            opacity: 0.9;
-        }
-        .threat-item {
-            display: flex;
-            align-items: flex-start;
-            gap: 8px;
-            padding: 8px;
-            margin: 4px 0;
-            border-radius: 4px;
-            cursor: pointer;
-            border-left: 3px solid transparent;
-            transition: background 0.15s ease;
-        }
-        .threat-item:hover {
-            background: var(--vscode-list-hoverBackground);
-        }
-        .threat-item.critical { border-left-color: #f87171; }
-        .threat-item.high { border-left-color: #fb923c; }
-        .threat-item.medium { border-left-color: #fbbf24; }
-        .threat-item.low { border-left-color: #4ade80; }
-        .severity-dot {
-            width: 8px;
-            height: 8px;
-            border-radius: 50%;
-            margin-top: 4px;
-            flex-shrink: 0;
-        }
-        .severity-dot.critical { background: #f87171; }
-        .severity-dot.high { background: #fb923c; }
-        .severity-dot.medium { background: #fbbf24; }
-        .severity-dot.low { background: #4ade80; }
-        .threat-content {
-            flex: 1;
-            min-width: 0;
-        }
-        .threat-message {
-            color: var(--vscode-editor-foreground);
-            line-height: 1.4;
-            word-wrap: break-word;
-        }
-        .threat-location {
-            color: var(--vscode-descriptionForeground);
-            font-size: 11px;
-            margin-top: 2px;
-        }
-        .jump-icon {
-            color: var(--vscode-textLink-foreground);
-            font-size: 14px;
-            flex-shrink: 0;
-            margin-top: 2px;
-            opacity: 0;
-            transition: opacity 0.15s ease;
-        }
-        .threat-item:hover .jump-icon {
-            opacity: 1;
-        }
-        .empty {
-            text-align: center;
-            padding: 24px 8px;
-            color: var(--vscode-descriptionForeground);
-            font-style: italic;
-        }
-        .action-buttons {
-            display: flex;
-            gap: 8px;
-            margin-bottom: 12px;
-        }
-        .btn {
-            flex: 1;
-            padding: 8px 10px;
-            background: var(--vscode-button-background);
-            color: var(--vscode-button-foreground);
-            border: none;
-            border-radius: 4px;
-            font-size: 11px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: background 0.15s ease;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 4px;
-        }
-        .btn:hover {
-            background: var(--vscode-button-hoverBackground);
-        }
-        .btn.secondary {
-            background: var(--vscode-button-secondaryBackground);
-            color: var(--vscode-button-secondaryForeground);
-        }
-        .btn.secondary:hover {
-            background: var(--vscode-button-secondaryHoverBackground);
-        }
-    </style>
-</head>
-<body>
-    <h2>🛡️ STRIDE Threat Report</h2>
-    <div class="action-buttons">
-        <button class="btn" onclick="scanWorkspace()">🌐 Scan Workspace</button>
-        <button class="btn secondary" onclick="generateReport()">📄 PDF Report</button>
-    </div>
-    ${sectionsHtml}
 
-    <script>
-        const vscodeApi = acquireVsCodeApi();
-        function jumpTo(filePath, line, character) {
-            vscodeApi.postMessage({
-                command: 'jumpToCode',
-                filePath: filePath.replace(/\\\\\\\\/g, '\\\\'),
-                line: line,
-                character: character
-            });
+        this._view.webview.html = htmlTemplate
+            .replace(/\$\{cspNonce\}/g, cspNonce)
+            .replace(/\$\{webviewCspSource\}/g, webviewCspSource)
+            .replace('${sectionsHtml}', sectionsHtml);
+    }
+
+    private getNonce(): string {
+        let text = '';
+        const possible = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+        for (let i = 0; i < 32; i++) {
+            text += possible.charAt(Math.floor(Math.random() * possible.length));
         }
-        function generateReport() {
-            vscodeApi.postMessage({ command: 'generateReport' });
-        }
-        function scanWorkspace() {
-            vscodeApi.postMessage({ command: 'scanWorkspace' });
-        }
-    </script>
-</body>
-</html>`;
+        return text;
     }
 
     /**

@@ -79,6 +79,7 @@ export class FlowGraph {
     private nodes: Map<string, FlowNode> = new Map();
     private edges: FlowEdge[] = [];
     private taintedFlows: TaintedFlow[] = [];
+    private _edgeKeys: Set<string> = new Set();
 
     /**
      * Adds a new node to the graph representing an identified security pattern or boundary.
@@ -90,10 +91,15 @@ export class FlowGraph {
 
     /**
      * Adds a directed edge between two nodes, representing a data flow relationship.
+     * Prevents duplicate edges from being added to the graph.
      * @param edge The FlowEdge to add.
      */
     public addEdge(edge: FlowEdge): void {
-        this.edges.push(edge);
+        const key = `${edge.from}→${edge.to}:${edge.label}`;
+        if (!this._edgeKeys.has(key)) {
+            this._edgeKeys.add(key);
+            this.edges.push(edge);
+        }
     }
 
     /**
@@ -135,5 +141,34 @@ export class FlowGraph {
         this.nodes.clear();
         this.edges = [];
         this.taintedFlows = [];
+        this._edgeKeys.clear();
+    }
+
+    /**
+     * Clears all nodes, edges, and tainted flows associated with a specific file.
+     * This allows for incremental, single-file updates without wiping the workspace graph.
+     * @param filePath Absolute path of the file to clear.
+     */
+    public clearForFile(filePath: string): void {
+        const filePrefix = filePath + ':';
+        
+        // Remove nodes belonging to this file
+        for (const [id, node] of this.nodes.entries()) {
+            if (node.filePath === filePath) {
+                this.nodes.delete(id);
+            }
+        }
+        
+        // Remove edges where either the source or target node belongs to this file
+        this.edges = this.edges.filter(e => {
+            const keep = !e.from.startsWith(filePrefix) && !e.to.startsWith(filePrefix);
+            if (!keep) {
+                this._edgeKeys.delete(`${e.from}→${e.to}:${e.label}`);
+            }
+            return keep;
+        });
+        
+        // Remove tainted flows originating from or sinking into this file
+        this.taintedFlows = this.taintedFlows.filter(f => !f.sourceNodeId.startsWith(filePrefix) && !f.sinkNodeId.startsWith(filePrefix));
     }
 }

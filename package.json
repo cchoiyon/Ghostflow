@@ -3,10 +3,18 @@
   "displayName": "Ghostflow",
   "description": "Ghostflow Developer-Native Security Architecture Visualizer",
   "version": "0.1.0",
+  "publisher": "cchoiyon",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/cchoiyon/Ghostflow.git"
+  },
+  "license": "MIT",
   "engines": {
     "vscode": "^1.80.0"
   },
   "categories": [
+    "Visualization",
+    "Linters",
     "Other"
   ],
   "activationEvents": [
@@ -54,12 +62,14 @@
         {
           "type": "webview",
           "id": "ghostflow.visualizerView",
-          "name": "Architecture Map"
+          "name": "Architecture Map",
+          "icon": "media/ghostflow-icon.svg"
         },
         {
           "type": "webview",
           "id": "ghostflow.threatReport",
-          "name": "Threat Report"
+          "name": "Threat Report",
+          "icon": "media/ghostflow-icon.svg"
         }
       ]
     }
@@ -72,6 +82,7 @@
     "lint": "eslint src --ext ts"
   },
   "dependencies": {
+    "d3": "^7.9.0",
     "jspdf": "^4.2.1",
     "jspdf-autotable": "^5.0.7",
     "typescript": "^5.0.0"

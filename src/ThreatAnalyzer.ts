@@ -164,6 +164,54 @@ export class ThreatAnalyzer {
                 message: 'Denial of Service: Localhost-only bindings in production may cause service unavailability when deployed to non-local environments.'
             });
         }
+
+        // Database operation nodes (ORM calls, pool.query, etc.)
+        if (node.label === 'Database Operation') {
+            threats.push({
+                ...base,
+                category: StrideCategory.InformationDisclosure,
+                severity: ThreatSeverity.Medium,
+                message: `Information Disclosure: Database operation detected (${node.rawValue}). Ensure queries are parameterized and results are not inadvertently leaked.`
+            });
+            threats.push({
+                ...base,
+                category: StrideCategory.Tampering,
+                severity: ThreatSeverity.Medium,
+                message: `Tampering: Database operation (${node.rawValue}) may be vulnerable to SQL/NoSQL injection if inputs are not properly validated.`
+            });
+        }
+
+        // Code execution nodes (eval, Function)
+        if (node.label === 'Code Execution') {
+            threats.push({
+                ...base,
+                category: StrideCategory.ElevationOfPrivilege,
+                severity: ThreatSeverity.Critical,
+                message: `Elevation of Privilege: Dynamic code execution via ${node.rawValue}(). An attacker providing controlled input can execute arbitrary code in the runtime.`
+            });
+            threats.push({
+                ...base,
+                category: StrideCategory.Tampering,
+                severity: ThreatSeverity.Critical,
+                message: `Tampering: ${node.rawValue}() allows arbitrary code injection. Remove or replace with safe alternatives.`
+            });
+        }
+
+        // Shell execution nodes (child_process.exec, spawn, etc.)
+        if (node.label === 'Shell Execution') {
+            threats.push({
+                ...base,
+                category: StrideCategory.ElevationOfPrivilege,
+                severity: ThreatSeverity.Critical,
+                message: `Elevation of Privilege: Shell command execution via ${node.rawValue}(). Command injection can grant full system-level access.`
+            });
+            threats.push({
+                ...base,
+                category: StrideCategory.Tampering,
+                severity: ThreatSeverity.High,
+                message: `Tampering: Shell execution (${node.rawValue}) may allow an attacker to modify files, install malware, or escalate privileges on the host.`
+            });
+        }
     }
 
     /**
@@ -180,10 +228,12 @@ export class ThreatAnalyzer {
             return;
         }
 
+        const isDbRelated = sourceNode.label === 'Database Operation' || sourceNode.type === NodeType.DataStore;
+        
         threats.push({
-            category: StrideCategory.InformationDisclosure,
+            category: isDbRelated ? StrideCategory.ElevationOfPrivilege : StrideCategory.InformationDisclosure,
             severity: ThreatSeverity.High,
-            message: `Information Disclosure: Insecure data flow detected (${edge.label}). Data crosses a trust boundary without encryption.`,
+            message: `${isDbRelated ? 'Elevation of Privilege' : 'Information Disclosure'}: Insecure data flow detected (${edge.label}). Data crosses a trust boundary without encryption.`,
             sourceLabel: edge.label,
             filePath: sourceNode.filePath,
             line: sourceNode.line,
