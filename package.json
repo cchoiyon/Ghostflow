@@ -32,6 +32,11 @@
         "command": "ghostflow.scanWorkspace",
         "title": "Ghostflow: Scan Entire Workspace",
         "icon": "$(repo-sync)"
+      },
+      {
+        "command": "ghostflow.exportReport",
+        "title": "Ghostflow: Export HTML Audit Report",
+        "icon": "$(export)"
       }
     ],
     "menus": {

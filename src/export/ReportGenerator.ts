@@ -1,6 +1,6 @@
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { ThreatEntry, ThreatSeverity, StrideCategory } from './ThreatAnalyzer';
+import { ThreatEntry, ThreatSeverity, StrideCategory } from '../core/ThreatAnalyzer';
 
 /**
  * Remediation suggestions mapped to each STRIDE category and pattern label.

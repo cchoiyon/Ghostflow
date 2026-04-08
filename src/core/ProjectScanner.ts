@@ -1,6 +1,7 @@
 import * as ts from 'typescript';
 import * as fs from 'fs';
 import * as path from 'path';
+import { SENSITIVE_PATTERNS } from '../utils/constants';
 
 /**
  * Represents a sensitive variable that is exported from a TypeScript/JavaScript module.
@@ -16,8 +17,6 @@ export interface SensitiveExport {
     /** Zero-indexed character offset. */
     character: number;
 }
-
-import { SENSITIVE_PATTERNS } from './constants';
 
 /**
  * Cached scan result for a single file, keyed by modification time.
@@ -186,7 +185,7 @@ export class ProjectScanner {
      */
     private isSensitiveName(name: string): boolean {
         const lower = name.toLowerCase();
-        return SENSITIVE_PATTERNS.some(pattern => lower.includes(pattern));
+        return SENSITIVE_PATTERNS.some((pattern: string) => lower.includes(pattern));
     }
 
     /**

@@ -3,6 +3,7 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 import { FlowGraph, NodeType } from './FlowGraph';
 import { ProjectScanner } from './ProjectScanner';
+import { SENSITIVE_PATTERNS, SANITIZER_PATTERNS } from '../utils/constants';
 
 /**
  * Represents a sensitive source variable detected during AST traversal.
@@ -23,7 +24,6 @@ interface SensitiveSource {
     isSanitized?: boolean;
 }
 
-import { SENSITIVE_PATTERNS, SANITIZER_PATTERNS } from './constants';
 
 /**
  * HTTP caller function names that represent outbound network requests.
@@ -440,12 +440,13 @@ export class Scanner {
                 this.graph.addNode({
                     id: nodeId,
                     type: NodeType.DataStore,
-                    label: isSanitizedFlow ? 'Sanitized Alias' : (aliasSource ? 'Tainted Alias' : 'Sensitive Source'),
+                    label: varName,
                     description: reason + (isSanitizedFlow ? ' (Secured via Sanitizer)' : ''),
                     filePath: document.fileName,
                     line,
                     character,
-                    rawValue: varName
+                    rawValue: varName,
+                    isInternal: !!aliasSource // Aliases are internal (compressible)
                 });
                 
                 // If it's an alias, draw an edge from the original source to this new alias
@@ -548,7 +549,7 @@ export class Scanner {
                     this.graph.addNode({
                         id: nodeId,
                         type: NodeType.DataStore,
-                        label: 'Sensitive Source',
+                        label: exportInfo.varName,
                         description: `Imported sensitive variable '${exportInfo.varName}' from ${sourceFileName}`,
                         filePath: document.fileName,
                         line: importLine,
@@ -657,7 +658,7 @@ export class Scanner {
                             this.graph.addNode({
                                 id: sinkNodeId,
                                 type: NodeType.ProcessNode,
-                                label: thirdPartyModule ? `3rd-Party SDK (${thirdPartyModule})` : 'Dangerous Sink',
+                                label: thirdPartyModule ? `${sinkName} (${thirdPartyModule})` : sinkName,
                                 description: thirdPartyModule ? `Sensitive data passed to external dependency API` : `Sensitive data passed to ${sinkName} sink`,
                                 filePath: document.fileName,
                                 line: sinkLine,
@@ -779,7 +780,7 @@ export class Scanner {
     /**
      * Adds an identified pattern to the FlowGraph with its raw value.
      */
-    private addNodeToGraph(node: ts.Node, document: vscode.TextDocument, type: NodeType, label: string, description: string, rawValue: string): void {
+    private addNodeToGraph(node: ts.Node, document: vscode.TextDocument, type: NodeType, label: string, description: string, rawValue: string, isInternal: boolean = false): void {
         const { line, character } = document.positionAt(node.getStart());
         this.graph.addNode({
             id: `${document.fileName}:${line}:${character}`,
@@ -789,7 +790,8 @@ export class Scanner {
             filePath: document.fileName,
             line,
             character,
-            rawValue
+            rawValue,
+            isInternal
         });
     }
 }

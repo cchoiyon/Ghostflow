@@ -1,9 +1,11 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webviewCspSource} 'unsafe-inline'; script-src 'nonce-${cspNonce}'; img-src ${webviewCspSource} data: blob:;">
+    <meta http-equiv="Content-Security-Policy"
+        content="default-src 'none'; style-src ${webviewCspSource} 'unsafe-inline'; script-src 'nonce-${cspNonce}'; img-src ${webviewCspSource} data: blob:;">
     <title>Ghostflow D3 Architecture Map</title>
     <style>
         :root {
@@ -11,11 +13,14 @@
             --fg: var(--vscode-sideBar-foreground);
             --border: var(--vscode-panel-border);
             --container-bg: var(--vscode-editor-background);
-            --tainted: var(--vscode-charts-red);
+            --critical: #ff4d4f;
+            --high: #ffa940;
+            --medium: #ffec3d;
+            --low: #bae637;
             --secure: var(--vscode-charts-green);
-            --insecure: var(--vscode-charts-orange);
-            --node-shadow: 0 8px 16px rgba(0,0,0,0.3);
+            --node-shadow: 0 8px 16px rgba(0, 0, 0, 0.3);
         }
+
         body {
             background: var(--bg);
             color: var(--fg);
@@ -28,6 +33,7 @@
             width: 100vw;
             height: 100vh;
         }
+
         #action-bar {
             flex: 0 0 auto;
             padding: 8px 12px;
@@ -37,8 +43,9 @@
             display: flex;
             flex-wrap: wrap;
             gap: 8px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
         }
+
         .btn {
             background: var(--vscode-button-background);
             color: var(--vscode-button-foreground);
@@ -54,401 +61,1621 @@
             gap: 4px;
             white-space: nowrap;
         }
-        .btn:hover { opacity: 0.9; transform: translateY(-1px); }
+
+        .btn:hover {
+            opacity: 0.9;
+            transform: translateY(-1px);
+        }
+
         .btn-secondary {
             background: var(--vscode-button-secondaryBackground);
             color: var(--vscode-button-secondaryForeground);
         }
-        #chart-container { flex: 1 1 auto; overflow: hidden; position: relative; }
-        #chart { width: 100%; height: 100%; }
-        
+
+        .filter-group {
+            display: flex;
+            gap: 4px;
+            margin-left: auto;
+            align-items: center;
+            border-left: 1px solid var(--border);
+            padding-left: 12px;
+        }
+
+        .filter-chip {
+            padding: 2px 6px;
+            border-radius: 12px;
+            font-size: 9px;
+            cursor: pointer;
+            opacity: 0.5;
+            transition: 0.2s;
+            border: 1px solid transparent;
+        }
+
+        .filter-chip.active {
+            opacity: 1;
+            border-color: var(--fg);
+        }
+
+        #chart-container {
+            flex: 1 1 auto;
+            overflow: hidden;
+            position: relative;
+        }
+
+        #chart {
+            width: 100%;
+            height: 100%;
+        }
+
         .cluster-rect {
             fill: transparent;
-            stroke: var(--vscode-charts-red);
-            stroke-width: 2px;
-            stroke-dasharray: 6,4;
-            rx: 6px; ry: 6px;
+            stroke: var(--border);
+            stroke-width: 1.5px;
+            stroke-dasharray: 4, 4;
+            rx: 8px;
+            ry: 8px;
+            opacity: 0.4;
         }
+
         .cluster-label {
-            font-size: 11px;
-            font-weight: 800;
-            fill: var(--vscode-charts-red);
+            font-size: 9px;
+            font-weight: 500;
+            fill: var(--fg);
+            opacity: 0.6;
             pointer-events: none;
-            text-transform: uppercase;
-            letter-spacing: 1px;
         }
-        .node circle {
-            stroke-width: 2.5;
+
+        .node path {
             cursor: pointer;
+            transition: transform 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
         }
+
+        .node:hover path {
+            transform: scale(1.2);
+        }
+
         .edge {
             fill: none;
-            stroke-opacity: 0.3;
+            stroke-opacity: 0.4;
+            transition: stroke-opacity 0.3s, stroke-width 0.3s;
         }
-        .legend {
-            position: absolute;
-            bottom: 10px; left: 10px;
-            background: var(--bg);
-            padding: 8px 12px;
-            border-radius: 6px;
-            border: 1px solid var(--border);
-            font-size: 10px;
+
+        .edge.highlighted {
+            stroke-opacity: 1;
+            stroke-width: 3px;
+        }
+
+        /* Layout: chart + side panel sit side-by-side */
+        #main-area {
+            flex: 1 1 auto;
+            display: flex;
+            flex-direction: row;
+            overflow: hidden;
+        }
+
+        #chart-container {
+            flex: 1 1 auto;
+            overflow: hidden;
+            position: relative;
+        }
+
+        #chart {
+            width: 100%;
+            height: 100%;
+        }
+
+        /* Fixed-width right sidebar */
+        #side-panel {
+            flex: 0 0 240px;
+            width: 240px;
+            background: var(--vscode-sideBar-background);
+            border-left: 1px solid var(--border);
             display: flex;
             flex-direction: column;
-            gap: 4px;
-            box-shadow: var(--node-shadow);
-            pointer-events: none;
+            overflow-y: auto;
+            font-size: 11px;
+            z-index: 5;
         }
-        .legend-item { display: flex; align-items: center; gap: 6px; }
-        .dot { width: 8px; height: 8px; border-radius: 50%; }
+
+        .panel-section {
+            padding: 12px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .panel-section-title {
+            font-size: 10px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            opacity: 0.5;
+            margin-bottom: 10px;
+        }
+
+        .summary-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 5px;
+            font-size: 11px;
+        }
+
+        .summary-badge {
+            font-weight: 700;
+            font-size: 12px;
+            min-width: 28px;
+            text-align: right;
+        }
+
+        .schema-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 8px;
+        }
+
+        .schema-item svg {
+            overflow: visible;
+        }
+
+        .schema-label {
+            font-size: 11px;
+        }
+
+        /* Focus Dimming */
+        .dimmed {
+            opacity: 0.08 !important;
+            transition: opacity 0.3s;
+        }
+
+        .focus-active .edge:not(.highlighted) {
+            opacity: 0.05;
+        }
+
+        .focus-active .node:not(.highlighted) {
+            opacity: 0.08;
+        }
+
+        /* Custom Node Tooltip */
+        #node-tooltip {
+            position: fixed;
+            z-index: 100;
+            background: #1a1a2e;
+            border: 1px solid #444;
+            border-radius: 8px;
+            padding: 10px 14px;
+            font-size: 11px;
+            max-width: 240px;
+            pointer-events: none;
+            display: none;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+            line-height: 1.6;
+        }
+
+        #node-tooltip .tt-label {
+            font-size: 13px;
+            font-weight: 700;
+            margin-bottom: 4px;
+        }
+
+        #node-tooltip .tt-row {
+            display: flex;
+            gap: 6px;
+            opacity: 0.8;
+        }
+
+        #node-tooltip .tt-key {
+            opacity: 0.5;
+            white-space: nowrap;
+        }
+
+        #node-tooltip .tt-cwe {
+            color: #ff3b3b;
+            font-weight: 600;
+        }
+
+        #node-tooltip .tt-owasp {
+            color: #f5c518;
+        }
+
+        #node-tooltip .tt-fix {
+            margin-top: 6px;
+            border-top: 1px solid #333;
+            padding-top: 6px;
+            font-size: 10px;
+            opacity: 0.75;
+            font-style: italic;
+        }
+
+        /* Empty / Clean state overlay */
+        #empty-state {
+            display: none;
+            position: absolute;
+            inset: 0;
+            justify-content: center;
+            align-items: center;
+            flex-direction: column;
+            gap: 12px;
+            pointer-events: none;
+            z-index: 2;
+        }
+
+        #empty-state.visible {
+            display: flex;
+        }
+
+        #empty-state p {
+            font-size: 13px;
+            opacity: 0.6;
+            text-align: center;
+            max-width: 260px;
+            line-height: 1.5;
+            color: var(--vscode-sideBar-foreground);
+        }
+
+        #module-filter {
+            background: var(--vscode-button-secondaryBackground);
+            color: var(--vscode-button-secondaryForeground);
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            padding: 4px 8px;
+            font-size: 10px;
+            font-weight: 600;
+            cursor: pointer;
+            max-width: 180px;
+        }
+
+        #module-filter:focus {
+            outline: none;
+            border-color: var(--vscode-focusBorder, #555);
+        }
     </style>
 </head>
+
 <body>
     <div id="action-bar">
-        <button id="btn-scan" class="btn">🌐 Scan</button>
-        <button id="btn-reset" class="btn btn-secondary">🏠 Reset</button>
-        <button id="btn-download" class="btn btn-secondary">📥 Download PNG</button>
+        <button id="btn-scan" class="btn">🌐 Scan Workspace</button>
+        <button id="btn-reset" class="btn btn-secondary">🏠 Reset View</button>
+        <button id="btn-download" class="btn btn-secondary">📥 PNG</button>
+        <select id="module-filter">
+            <option value="__all__">📂 All Files</option>
+        </select>
+
+        <div class="filter-group">
+            <span class="filter-chip active" style="background:var(--critical)" data-severity="Critical">Critical</span>
+            <span class="filter-chip active" style="background:var(--high)" data-severity="High">High</span>
+            <span class="filter-chip active" style="background:var(--medium); color:black"
+                data-severity="Medium">Medium</span>
+            <span class="filter-chip active" style="background:var(--low); color:black" data-severity="Low">Low</span>
+            <span class="filter-chip active" style="background:var(--vscode-charts-purple)" data-severity="None">Secure
+                Nodes</span>
+        </div>
     </div>
-    <div id="chart-container">
-        <div id="chart"></div>
-        <div class="legend">
-            <div class="legend-item"><span class="dot" style="background:var(--tainted)"></span> Tainted Flow</div>
-            <div class="legend-item"><span class="dot" style="background:var(--insecure)"></span> Insecure Flow</div>
-            <div class="legend-item"><span class="dot" style="background:var(--secure)"></span> Secure Flow</div>
+    <div id="main-area">
+        <div id="chart-container">
+            <div id="chart"></div>
+            <!-- Empty / zero-threat state overlay — populated by JS -->
+            <div id="empty-state"></div>
+        </div>
+        <!-- Custom focus mode tooltip — populated by JS, never via innerHTML -->
+        <div id="node-tooltip"></div>
+        <div id="side-panel">
+            <!-- Section 1: Scan Summary (populated by JS) -->
+            <div class="panel-section">
+                <div class="panel-section-title">Scan Summary</div>
+                <div id="summary-content">
+                    <div style="opacity:0.4;font-size:10px;">Run a scan to see results.</div>
+                </div>
+            </div>
+            <!-- Section 2: Schema Key (static D3 symbols) -->
+            <div class="panel-section">
+                <div class="panel-section-title">Schema Key</div>
+                <div id="schema-key"></div>
+            </div>
         </div>
     </div>
 
     <script nonce="${cspNonce}" src="${d3Uri}"></script>
     <script nonce="${cspNonce}">
         const vscodeApi = acquireVsCodeApi();
-        const rawNodes = /* __NODES__ */ [];
-        const rawEdges = /* __EDGES__ */ [];
+        let nodes = /* __NODES__ */[];
+        let edges = /* __EDGES__ */[];
 
-        document.getElementById('btn-scan').addEventListener('click', () => {
-            vscodeApi.postMessage({ command: 'scanWorkspace' });
+        /**
+         * Receives scan data from the extension via postMessage.
+         * Replaces the global nodes/edges arrays and triggers a full re-render.
+         */
+        window.addEventListener('message', event => {
+            const message = event.data;
+            if (message.command === 'renderGraph') {
+                nodes = message.nodes || [];
+                edges = message.edges || [];
+                edges.forEach(e => {
+                    e.source = e.from;
+                    e.target = e.to;
+                });
+                initializeGraph();
+            }
         });
-        document.getElementById('btn-reset').addEventListener('click', () => {
-             resetZoom();
+
+        edges.forEach(e => {
+            e.source = e.from;
+            e.target = e.to;
         });
-        document.getElementById('btn-download').addEventListener('click', () => {
-             downloadPNG();
-        });
-        
-        const zoom = d3.zoom().on("zoom", (event) => g.attr("transform", event.transform));
-        function resetZoom() {
-            svg.transition().duration(750).call(zoom.transform, d3.zoomIdentity);
+
+        /** Checks node/edge state and renders the appropriate view. */
+        function initializeGraph() {
+            if (nodes.length === 0) {
+                renderEmptyState();
+            } else {
+                const taintedCount = edges.filter(e => e.tainted === true).length;
+                const fileCount = new Set(nodes.map(n => n.filePath)).size;
+                if (taintedCount === 0) {
+                    renderCleanState(fileCount);
+                } else {
+                    hideEmptyState();
+                }
+                setTimeout(updateD3Graph, 50);
+            }
         }
 
-        function downloadPNG() {
-            const svgEl = document.querySelector("#chart svg");
-            
-            // Helper to resolve CSS variables to absolute colors (rgb/rgba)
-            function getAbsoluteColor(cssVarOrColor) {
-                const el = document.createElement("div");
-                el.style.color = cssVarOrColor;
-                el.style.display = "none";
-                document.body.appendChild(el);
-                const color = window.getComputedStyle(el).color;
-                el.remove();
-                return color;
+        // --- Initial state check: show empty or clean overlay if scan has no data ---
+        initializeGraph();
+
+        /**
+         * Shows the empty-state overlay in the chart container with a ghost SVG icon
+         * and an explanatory message when nodes.length === 0 (no scan data yet).
+         * Uses only inline SVG — respects VS Code theme colors via CSS variables.
+         */
+        function renderEmptyState() {
+            const el = document.getElementById('empty-state');
+            el.replaceChildren();
+
+            const svgNS = 'http://www.w3.org/2000/svg';
+            const svgEl = document.createElementNS(svgNS, 'svg');
+            svgEl.setAttribute('width', '64'); svgEl.setAttribute('height', '72');
+            svgEl.setAttribute('viewBox', '0 0 64 72');
+            svgEl.setAttribute('fill', 'none');
+            svgEl.setAttribute('opacity', '0.35');
+            // Ghost body outline
+            const bodyEl = document.createElementNS(svgNS, 'path');
+            bodyEl.setAttribute('d', 'M8 32 C8 14 56 14 56 32 L56 64 L48 56 L40 64 L32 56 L24 64 L16 56 L8 64 Z');
+            bodyEl.setAttribute('stroke', 'var(--vscode-sideBar-foreground)');
+            bodyEl.setAttribute('stroke-width', '3');
+            bodyEl.setAttribute('stroke-linejoin', 'round');
+            svgEl.appendChild(bodyEl);
+            // Ghost eyes
+            ['20', '44'].forEach(cx => {
+                const eye = document.createElementNS(svgNS, 'circle');
+                eye.setAttribute('cx', cx); eye.setAttribute('cy', '36'); eye.setAttribute('r', '4');
+                eye.setAttribute('fill', 'var(--vscode-sideBar-foreground)');
+                svgEl.appendChild(eye);
+            });
+
+            const p = document.createElement('p');
+            p.textContent = 'No threats mapped yet. Run a scan to begin.';
+
+            el.appendChild(svgEl);
+            el.appendChild(p);
+            el.classList.add('visible');
+            document.getElementById('chart').style.visibility = 'hidden';
+        }
+
+        /**
+         * Shows the zero-threat state overlay when a scan completes but no tainted
+         * paths were found. Distinct from the empty state: uses a green ghost icon.
+         * @param {number} fileCount - Total number of files that were scanned.
+         */
+        function renderCleanState(fileCount) {
+            const el = document.getElementById('empty-state');
+            el.replaceChildren();
+
+            const svgNS = 'http://www.w3.org/2000/svg';
+            const svgEl = document.createElementNS(svgNS, 'svg');
+            svgEl.setAttribute('width', '64'); svgEl.setAttribute('height', '72');
+            svgEl.setAttribute('viewBox', '0 0 64 72');
+            svgEl.setAttribute('fill', 'none');
+            // Ghost body — green tinted for clean state
+            const bodyEl = document.createElementNS(svgNS, 'path');
+            bodyEl.setAttribute('d', 'M8 32 C8 14 56 14 56 32 L56 64 L48 56 L40 64 L32 56 L24 64 L16 56 L8 64 Z');
+            bodyEl.setAttribute('stroke', '#4caf50');
+            bodyEl.setAttribute('stroke-width', '3');
+            bodyEl.setAttribute('stroke-linejoin', 'round');
+            bodyEl.setAttribute('fill', '#4caf5011');
+            svgEl.appendChild(bodyEl);
+            // Checkmark eyes (small circles in green)
+            ['20', '44'].forEach(cx => {
+                const eye = document.createElementNS(svgNS, 'circle');
+                eye.setAttribute('cx', cx); eye.setAttribute('cy', '36'); eye.setAttribute('r', '4');
+                eye.setAttribute('fill', '#4caf50');
+                svgEl.appendChild(eye);
+            });
+            // Smile arc
+            const smile = document.createElementNS(svgNS, 'path');
+            smile.setAttribute('d', 'M24 48 Q32 56 40 48');
+            smile.setAttribute('stroke', '#4caf50'); smile.setAttribute('stroke-width', '2.5');
+            smile.setAttribute('stroke-linecap', 'round');
+            svgEl.appendChild(smile);
+
+            const p = document.createElement('p');
+            p.textContent = `Clean scan. No tainted paths detected across ${fileCount} file${fileCount !== 1 ? 's' : ''}.`;
+            p.style.color = '#4caf50';
+            p.style.opacity = '0.9';
+
+            el.appendChild(svgEl);
+            el.appendChild(p);
+            el.classList.add('visible');
+            document.getElementById('chart').style.visibility = 'hidden';
+        }
+
+        /**
+         * Hides any active empty/clean state overlay and restores the chart.
+         */
+        function hideEmptyState() {
+            const el = document.getElementById('empty-state');
+            el.classList.remove('visible');
+            document.getElementById('chart').style.visibility = 'visible';
+        }
+
+        /**
+         * Computes scan statistics from the given node set (or all nodes if not supplied)
+         * and populates the Scan Summary section of the side panel.
+         * @param {Array} [visibleNodes=nodes] - The subset of nodes to compute stats for.
+         */
+        function updateSummaryPanel(visibleNodes) {
+            const src = visibleNodes || nodes;
+            const critical = src.filter(n => n.riskLevel === 'critical').length;
+            const high = src.filter(n => n.riskLevel === 'high').length;
+            const medium = src.filter(n => n.riskLevel === 'medium').length;
+            const low = src.filter(n => n.riskLevel === 'low').length;
+            // Count tainted/sanitized edges whose both endpoints are in visibleNodes
+            const visibleIds = new Set(src.map(n => n.id));
+            const tainted = edges.filter(e => {
+                const sId = typeof e.source === 'object' ? e.source.id : e.source;
+                const tId = typeof e.target === 'object' ? e.target.id : e.target;
+                const isTainted = e.flowType === 'tainted' || e.tainted === true;
+                return isTainted && visibleIds.has(sId) && visibleIds.has(tId);
+            }).length;
+            const sanitized = edges.filter(e => {
+                const sId = typeof e.source === 'object' ? e.source.id : e.source;
+                const tId = typeof e.target === 'object' ? e.target.id : e.target;
+                const isSanitized = e.flowType === 'sanitized' || e.secure === true;
+                return isSanitized && visibleIds.has(sId) && visibleIds.has(tId);
+            }).length;
+            const files = new Set(src.map(n => n.filePath)).size;
+
+            const rows = [
+                { label: '🔴 Critical nodes', value: critical, color: '#ff3b3b' },
+                { label: '🟠 High nodes', value: high, color: '#ff7c00' },
+                { label: '🟡 Medium nodes', value: medium, color: '#f5c518' },
+                { label: '🔵 Low nodes', value: low, color: '#4fc3f7' },
+                { label: '➡️ Tainted paths', value: tainted, color: '#ff3b3b' },
+                { label: '✅ Sanitized paths', value: sanitized, color: '#4caf50' },
+                { label: '📄 Files scanned', value: files, color: 'inherit' },
+            ];
+
+            const container = document.getElementById('summary-content');
+            // Build summary rows safely without innerHTML injection of user data
+            container.replaceChildren();
+            rows.forEach(row => {
+                const rowEl = document.createElement('div');
+                rowEl.className = 'summary-row';
+
+                const labelEl = document.createElement('span');
+                labelEl.textContent = row.label;
+
+                const badgeEl = document.createElement('span');
+                badgeEl.className = 'summary-badge';
+                badgeEl.style.color = row.color;
+                badgeEl.textContent = String(row.value);
+
+                rowEl.appendChild(labelEl);
+                rowEl.appendChild(badgeEl);
+                container.appendChild(rowEl);
+            });
+        }
+
+        /**
+         * Renders the static Schema Key section of the side panel.
+         * Draws each nodeType as a real D3 symbol at size 60 so it matches
+         * what is rendered on the main canvas exactly.
+         */
+        function renderSchemaKey() {
+            const schema = [
+                { nodeType: 'source', label: 'Source', symbol: d3.symbolTriangle, color: 'var(--vscode-foreground)' },
+                { nodeType: 'sink', label: 'Sink', symbol: d3.symbolSquare, color: 'var(--vscode-foreground)' },
+                { nodeType: 'sanitizer', label: 'Sanitizer', symbol: d3.symbolStar, color: 'var(--vscode-foreground)' },
+                { nodeType: 'sdk', label: 'SDK', symbol: d3.symbolDiamond, color: 'var(--vscode-foreground)' },
+                { nodeType: 'logic', label: 'Logic', symbol: d3.symbolCircle, color: 'var(--vscode-foreground)' },
+            ];
+
+            const container = document.getElementById('schema-key');
+            container.replaceChildren();
+
+            schema.forEach(item => {
+                const itemEl = document.createElement('div');
+                itemEl.className = 'schema-item';
+
+                // Create a small SVG to host the exact D3 symbol at size 60
+                const svgNS = 'http://www.w3.org/2000/svg';
+                const svgEl = document.createElementNS(svgNS, 'svg');
+                svgEl.setAttribute('width', '28');
+                svgEl.setAttribute('height', '28');
+                svgEl.setAttribute('viewBox', '-14 -14 28 28');
+
+                const pathEl = document.createElementNS(svgNS, 'path');
+                pathEl.setAttribute('d', d3.symbol().type(item.symbol).size(60)());
+                pathEl.setAttribute('fill', item.color);
+                pathEl.setAttribute('stroke', item.color);
+                pathEl.setAttribute('stroke-width', '1.5');
+                pathEl.setAttribute('opacity', '0.9');
+
+                svgEl.appendChild(pathEl);
+
+                const labelEl = document.createElement('span');
+                labelEl.className = 'schema-label';
+                labelEl.textContent = item.label;
+
+                itemEl.appendChild(svgEl);
+                itemEl.appendChild(labelEl);
+                container.appendChild(itemEl);
+            });
+        }
+
+        // Render the static schema key immediately (does not depend on scan data)
+        renderSchemaKey();
+
+        /**
+         * Tracks the currently active module filter file path.
+         * '__all__' means no file filter is active (show everything).
+         * @type {string}
+         */
+        let activeModuleFilter = '__all__';
+
+        /**
+         * Populates the #module-filter <select> with unique file basenames
+         * derived from the current nodes array. Always includes "All Files" as first option.
+         * Must be called after nodes are populated.
+         */
+        function initModuleFilter() {
+            const select = document.getElementById('module-filter');
+            // Clear all options except the first ("All Files")
+            while (select.options.length > 1) select.remove(1);
+
+            const uniquePaths = [...new Set(nodes.map(n => n.filePath))].sort();
+            uniquePaths.forEach(filePath => {
+                const opt = document.createElement('option');
+                opt.value = filePath;
+                opt.textContent = '📄 ' + filePath.split(/[\\/]/).pop();
+                select.appendChild(opt);
+            });
+        }
+
+        /**
+         * Applies the module file filter to nodes, edges, and hull boundaries.
+         * Nodes not in the selected file are hidden via visibility style.
+         * Edges connecting to any hidden node are also hidden.
+         * Hull regions for hidden files are suppressed during the next drawHulls() call.
+         * Recomputes the Scan Summary panel based on only currently visible nodes.
+         * @param {string} selectedPath - The filePath to show, or '__all__' to show everything.
+         */
+        function applyModuleFilter(selectedPath) {
+            activeModuleFilter = selectedPath;
+
+            const isNodeVisible = (n) =>
+                selectedPath === '__all__' || n.filePath === selectedPath;
+
+            // Show / hide nodes
+            node.style('visibility', d => isNodeVisible(d) ? 'visible' : 'hidden')
+                .style('pointer-events', d => isNodeVisible(d) ? 'all' : 'none');
+
+            // Show / hide edges — hide if either endpoint is hidden
+            link.style('visibility', d => {
+                const s = typeof d.source === 'object' ? d.source : nodes.find(n => n.id === d.source);
+                const t = typeof d.target === 'object' ? d.target : nodes.find(n => n.id === d.target);
+                if (!s || !t) return 'hidden';
+                return (isNodeVisible(s) && isNodeVisible(t)) ? 'visible' : 'hidden';
+            });
+
+            // Recompute Scan Summary using only currently visible nodes
+            const visibleNodes = nodes.filter(isNodeVisible);
+            updateSummaryPanel(visibleNodes);
+
+            // Hull layer will naturally reflect the filter on next tick via drawHulls()
+            // Force a redraw immediately so hulls update without waiting for simulation movement
+            drawHulls(selectedPath);
+        }
+
+        let activeFilters = new Set(['Critical', 'High', 'Medium', 'Low', 'None']);
+
+        // --- UI Setup ---
+        document.getElementById('btn-scan').addEventListener('click', () => vscodeApi.postMessage({ command: 'scanWorkspace' }));
+        document.getElementById('btn-reset').addEventListener('click', () => resetZoom());
+        document.getElementById('btn-download').addEventListener('click', () => downloadPNG());
+        document.getElementById('module-filter').addEventListener('change', (event) => {
+            applyModuleFilter(event.target.value);
+        });
+
+        document.querySelectorAll('.filter-chip').forEach(chip => {
+            chip.addEventListener('click', () => {
+                const sev = chip.dataset.severity;
+                if (activeFilters.has(sev)) {
+                    activeFilters.delete(sev);
+                    chip.classList.remove('active');
+                } else {
+                    activeFilters.add(sev);
+                    chip.classList.add('active');
+                }
+                updateGraphVisibility();
+            });
+        });
+
+        const chartContainer = document.getElementById('chart-container');
+        // Use a large virtual canvas for simulation — the auto-fit zoom will
+        // scale everything to fit the actual container after convergence.
+        // This prevents nodes from being crushed into a tiny 300×300 sidebar.
+        const SIM_BASE = 2000;
+        const width = SIM_BASE;
+        const height = SIM_BASE;
+        const svg = d3.select("#chart").append("svg")
+            .attr("width", "100%").attr("height", "100%")
+            .attr("viewBox", [0, 0, width, height]);
+
+        /**
+         * Tracks the currently active LOD tier to avoid redundant transitions.
+         * Values: 'full' | 'mid' | 'overview'
+         * @type {string}
+         */
+        let currentLOD = 'full';
+
+        /**
+         * Derives the LOD tier name from a zoom scale value.
+         * @param {number} scale - Current d3 zoom transform k value.
+         * @returns {'full'|'mid'|'overview'} The tier for this scale.
+         */
+        function getLODTier(scale) {
+            if (scale >= 0.8) return 'full';
+            if (scale >= 0.4) return 'mid';
+            return 'overview';
+        }
+
+        /**
+         * Applies the correct Level-of-Detail tier to all nodes, edges, and hull labels.
+         * Only triggers DOM mutations when the tier actually changes, to avoid spam.
+         * Transitions use d3.transition().duration(200) for all visual changes.
+         * @param {number} scale - Current d3 zoom transform k value.
+         */
+        function applyLOD(scale) {
+            const tier = getLODTier(scale);
+            if (tier === currentLOD) return; // No tier change — skip
+            currentLOD = tier;
+
+            const t = d3.transition().duration(200);
+
+            if (tier === 'full') {
+                // Full detail: D3 symbols at their original sizes, labels visible, markers on
+                node.select('path').transition(t)
+                    .attr('d', d => d3.symbol()
+                        .type(getSymbolType(d.nodeType))
+                        .size(getSymbolSize(d.riskLevel))()
+                    );
+                node.selectAll('text').transition(t).style('opacity', 1);
+                link.transition(t)
+                    .attr('stroke-width', d => getEdgeWidth(d))
+                    .attr('marker-end', d => getEdgeMarker(d));
+                hullLayer.selectAll('text').transition(t).style('opacity', 0.6);
+
+            } else if (tier === 'mid') {
+                // Mid detail: shapes visible, all labels hidden, edge markers hidden
+                node.select('path').transition(t)
+                    .attr('d', d => d3.symbol()
+                        .type(getSymbolType(d.nodeType))
+                        .size(getSymbolSize(d.riskLevel))()
+                    );
+                node.selectAll('text').transition(t).style('opacity', 0);
+                link.transition(t)
+                    .attr('stroke-width', d => getEdgeWidth(d))
+                    .attr('marker-end', 'none');
+                hullLayer.selectAll('text').transition(t).style('opacity', 0);
+
+            } else {
+                // Overview: collapse all nodes to plain 6px circles, thin edges, no markers
+                node.select('path').transition(t)
+                    .attr('d', d3.symbol().type(d3.symbolCircle).size(Math.PI * 6 * 6)());
+                node.selectAll('text').transition(t).style('opacity', 0);
+                link.transition(t)
+                    .attr('stroke-width', 0.5)
+                    .attr('marker-end', 'none');
+                hullLayer.selectAll('text').transition(t).style('opacity', 0);
+            }
+        }
+
+        const zoom = d3.zoom().scaleExtent([0.1, 4]).on('zoom', (event) => {
+            g.attr('transform', event.transform);
+            applyLOD(event.transform.k);
+        });
+        svg.call(zoom);
+        const g = svg.append("g");
+
+        // --- Dedicated per-flowType arrow markers ---
+        const defs = svg.append("defs");
+
+        /** Tainted flow arrowhead — red */
+        defs.append("marker")
+            .attr("id", "marker-tainted")
+            .attr("viewBox", "0 -5 10 10").attr("refX", 20).attr("refY", 0)
+            .attr("orient", "auto").attr("markerWidth", 6).attr("markerHeight", 6)
+            .append("path").attr("d", "M0,-4 L8,0 L0,4")
+            .attr("fill", "var(--critical)");
+
+        /** Sanitized flow arrowhead — green */
+        defs.append("marker")
+            .attr("id", "marker-sanitized")
+            .attr("viewBox", "0 -5 10 10").attr("refX", 20).attr("refY", 0)
+            .attr("orient", "auto").attr("markerWidth", 6).attr("markerHeight", 6)
+            .append("path").attr("d", "M0,-4 L8,0 L0,4")
+            .attr("fill", "var(--secure)");
+
+        /** Neutral flow arrowhead — grey */
+        defs.append("marker")
+            .attr("id", "marker-neutral")
+            .attr("viewBox", "0 -5 10 10").attr("refX", 20).attr("refY", 0)
+            .attr("orient", "auto").attr("markerWidth", 6).attr("markerHeight", 6)
+            .append("path").attr("d", "M0,-4 L8,0 L0,4")
+            .attr("fill", "var(--vscode-disabledForeground)");
+
+        function resetZoom() {
+            autoFitGraph();
+        }
+
+        // --- Hull Color Palette ---
+        const HULL_PALETTE = [
+            '#4fc3f7', '#81c784', '#ffb74d', '#f06292', '#ce93d8',
+            '#80cbc4', '#fff176', '#ffcc02', '#a5d6a7', '#ef9a9a',
+            '#90caf9', '#ffe082'
+        ];
+
+        /**
+         * Browser-side translation of safeHull() from /src/nullGuards.ts.
+         * Returns the input points array if it contains 3 or more points,
+         * otherwise returns null. Required because d3.polygonHull returns
+         * null on fewer than 3 points.
+         * @param {Array<[number, number]>} points - Array of [x, y] coordinate pairs.
+         * @returns {Array<[number, number]> | null} The original array if valid, otherwise null.
+         */
+        function safeHull(points) {
+            return points.length >= 3 ? points : null;
+        }
+
+        /**
+         * Expands each point on a convex hull outward from the centroid by a fixed margin.
+         * @param {Array<[number, number]>} hull - Convex hull point array from d3.polygonHull.
+         * @param {number} margin - Number of pixels to expand each point outward.
+         * @returns {Array<[number, number]>} Expanded hull point array.
+         */
+        function expandHull(hull, margin) {
+            const cx = hull.reduce((sum, p) => sum + p[0], 0) / hull.length;
+            const cy = hull.reduce((sum, p) => sum + p[1], 0) / hull.length;
+            return hull.map(([x, y]) => {
+                const dx = x - cx;
+                const dy = y - cy;
+                const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+                return [x + (dx / dist) * margin, y + (dy / dist) * margin];
+            });
+        }
+
+        // --- Hull Layer (rendered behind links and nodes) ---
+        const hullLayer = g.append("g").attr("class", "hull-layer");
+
+        /**
+         * Groups nodes by filePath and redraws trust boundary hulls.
+         * Called on every simulation tick so boundaries follow the live layout.
+         * For groups with fewer than 3 nodes, renders a fallback circle instead.
+         * @param {string} [fileFilter='__all__'] - If set, only draws the hull for this filePath.
+         */
+        function drawHulls(fileFilter) {
+            const filterPath = fileFilter ?? activeModuleFilter ?? '__all__';
+            // Group live nodes by filePath
+            const groups = d3.group(nodes, d => d.filePath);
+            const fileList = Array.from(groups.keys());
+
+            // Clear previous hull shapes and labels
+            hullLayer.selectAll('*').remove();
+
+            fileList.forEach((filePath, i) => {
+                // Skip this file's hull if a module filter is active and it doesn't match
+                if (filterPath !== '__all__' && filePath !== filterPath) return;
+                const groupNodes = groups.get(filePath);
+                const color = HULL_PALETTE[i % HULL_PALETTE.length];
+                const fileName = filePath.split(/[\\/]/).pop();
+                const points = groupNodes.map(n => [n.x, n.y]);
+
+                const validPoints = safeHull(points);
+
+                if (validPoints === null) {
+                    // Fallback: fewer than 3 nodes — render a fallback circle
+                    const n = groupNodes[0];
+                    hullLayer.append('circle')
+                        .attr('cx', n.x)
+                        .attr('cy', n.y)
+                        .attr('r', 40)
+                        .attr('fill', color)
+                        .attr('fill-opacity', 0.07)
+                        .attr('stroke', color)
+                        .attr('stroke-opacity', 0.3)
+                        .attr('stroke-width', 1.5)
+                        .attr('stroke-dasharray', '6,3');
+
+                    hullLayer.append('text')
+                        .attr('x', n.x - 36)
+                        .attr('y', n.y - 44)
+                        .attr('font-size', '11px')
+                        .attr('opacity', 0.6)
+                        .attr('fill', color)
+                        .attr('pointer-events', 'none')
+                        .text(fileName ?? '');
+                } else {
+                    // Compute and expand convex hull
+                    const hull = d3.polygonHull(validPoints);
+                    if (!hull) return;
+                    const expanded = expandHull(hull, 28);
+                    const pathD = 'M' + expanded.map(p => p.join(',')).join('L') + 'Z';
+
+                    hullLayer.append('path')
+                        .attr('d', pathD)
+                        .attr('fill', color)
+                        .attr('fill-opacity', 0.07)
+                        .attr('stroke', color)
+                        .attr('stroke-opacity', 0.3)
+                        .attr('stroke-width', 1.5)
+                        .attr('stroke-dasharray', '6,3');
+
+                    // Anchor label to top-left of bounding box
+                    const minX = Math.min(...expanded.map(p => p[0]));
+                    const minY = Math.min(...expanded.map(p => p[1]));
+                    hullLayer.append('text')
+                        .attr('x', minX + 4)
+                        .attr('y', minY - 4)
+                        .attr('font-size', '11px')
+                        .attr('opacity', 0.6)
+                        .attr('fill', color)
+                        .attr('pointer-events', 'none')
+                        .text(fileName ?? '');
+                }
+            });
+        }
+
+        // --- Simulation Setup (adaptive to node count and sidebar constraints) ---
+        /**
+         * Lookup map for fast filePath resolution during link distance calc.
+         * Rebuilt inside updateD3Graph() whenever new data arrives.
+         * @type {Object<string, object>}
+         */
+        let nodeById = {};
+
+        const simulation = d3.forceSimulation(nodes)
+            .force("link", d3.forceLink(edges)
+                .id(d => d.id)
+                .distance(d => {
+                    const srcFp = (typeof d.source === 'object' ? d.source.filePath : (nodeById[d.source] || {}).filePath) || '';
+                    const tgtFp = (typeof d.target === 'object' ? d.target.filePath : (nodeById[d.target] || {}).filePath) || '';
+                    // Same-file nodes stay close; cross-file get more space
+                    return srcFp === tgtFp ? 80 : 300;
+                })
+            )
+            .force("charge", d3.forceManyBody().strength(-600))
+            .force("center", d3.forceCenter(width / 2, height / 2))
+            .force("collision", d3.forceCollide().radius(45))
+            .force("fileCluster", function (alpha) {
+                // Push nodes from DIFFERENT files apart when too close.
+                // The threshold is generous (250px) to keep file groups clearly distinct.
+                const minDist = 250;
+                for (var i = 0; i < nodes.length; i++) {
+                    for (var j = i + 1; j < nodes.length; j++) {
+                        var a = nodes[i], b = nodes[j];
+                        if (a.filePath !== b.filePath) {
+                            var dx = a.x - b.x;
+                            var dy = a.y - b.y;
+                            var dist = Math.sqrt(dx * dx + dy * dy) || 1;
+                            if (dist < minDist) {
+                                var force = (minDist - dist) / dist * alpha * 0.9;
+                                a.x += dx * force; a.y += dy * force;
+                                b.x -= dx * force; b.y -= dy * force;
+                            }
+                        }
+                    }
+                }
+            })
+            .alphaDecay(0.02)    // Slow convergence — give nodes time to spread
+            .velocityDecay(0.4)
+            .alphaMin(0.005);    // Run longer before stopping
+
+
+
+        // --- Rendering ---
+
+        /**
+         * Returns the stroke color for an edge.
+         * Handles both e.tainted (boolean, from VisualizerProvider) and
+         * e.flowType (string, legacy) so the graph stays accurate after any
+         * scan data format change.
+         * @param {object} e - The edge datum.
+         * @returns {string} CSS color string.
+         */
+        function getEdgeStroke(e) {
+            if (e.tainted === true || e.flowType === 'tainted') return '#ff3b3b';
+            if (e.secure === true || e.flowType === 'sanitized') return '#4caf50';
+            return '#444444';
+        }
+
+        /**
+         * Returns the stroke-dasharray for an edge.
+         * @param {object} e - The edge datum.
+         * @returns {string} SVG stroke-dasharray value.
+         */
+        function getEdgeDashArray(e) {
+            if (e.secure === true || e.flowType === 'sanitized') return '8,4';
+            if (e.tainted === true || e.flowType === 'tainted') return 'none';
+            return '4,4';
+        }
+
+        /**
+         * Returns the stroke-width for an edge.
+         * @param {object} e - The edge datum.
+         * @returns {number} Pixel width.
+         */
+        function getEdgeWidth(e) {
+            if (e.tainted === true || e.flowType === 'tainted') return 2;
+            if (e.secure === true || e.flowType === 'sanitized') return 1.5;
+            return 1;
+        }
+
+        /**
+         * Returns the marker-end URL for an edge.
+         * @param {object} e - The edge datum.
+         * @returns {string} SVG marker reference string.
+         */
+        function getEdgeMarker(e) {
+            if (e.tainted === true || e.flowType === 'tainted') return 'url(#marker-tainted)';
+            if (e.secure === true || e.flowType === 'sanitized') return 'url(#marker-sanitized)';
+            return 'url(#marker-neutral)';
+        }
+
+        function getSymbolType(nodeType) {
+            switch (nodeType) {
+                case 'source': return d3.symbolTriangle;
+                case 'sink': return d3.symbolSquare;
+                case 'sanitizer': return d3.symbolStar;
+                case 'sdk': return d3.symbolDiamond;
+                case 'logic':
+                default: return d3.symbolCircle;
+            }
+        }
+
+        function getSymbolSize(riskLevel) {
+            switch (riskLevel) {
+                case 'critical': return 320;
+                case 'high': return 240;
+                case 'medium': return 180;
+                case 'low': return 140;
+                case 'safe':
+                default: return 100;
+            }
+        }
+
+        function getNodeColors(riskLevel) {
+            switch (riskLevel) {
+                case 'critical': return { fill: 'var(--critical)', stroke: 'var(--critical)' };
+                case 'high': return { fill: 'var(--high)', stroke: 'var(--high)' };
+                case 'medium': return { fill: 'var(--medium)', stroke: 'var(--medium)' };
+                case 'low': return { fill: 'var(--low)', stroke: 'var(--low)' };
+                case 'safe':
+                default: return { fill: 'var(--vscode-editorWidget-background)', stroke: 'var(--vscode-disabledForeground)' };
+            }
+        }
+
+        function resolveLabel(d) {
+            const GENERIC = ['tainted alias', 'sensitive source', 'dangerous sink', 'sanitized alias'];
+            let lbl = d.label || '';
+            if (!lbl || GENERIC.includes(lbl.toLowerCase())) {
+                lbl = d.nodeType || d.id || '';
+            }
+            return lbl.length > 24 ? lbl.slice(0, 24) + '…' : lbl;
+        }
+
+        let linkGroup = g.append("g").attr("class", "link-group");
+        let nodeGroup = g.append("g").attr("class", "node-group");
+        let link = linkGroup.selectAll("path");
+        let node = nodeGroup.selectAll("g");
+
+        function updateD3Graph() {
+            updateSummaryPanel();
+            initModuleFilter();
+
+            // Rebuild nodeById lookup for variable link distance
+            nodeById = {};
+            nodes.forEach(n => { nodeById[n.id] = n; });
+
+            // Pre-seed angular positions per file cluster with a LARGE radius
+            // (the virtual canvas is 2000×2000, so clusters spread generously)
+            const uniqueFiles = Array.from(new Set(nodes.map(n => n.filePath)));
+            const angleStep = (2 * Math.PI) / (uniqueFiles.length || 1);
+            const clusterRadius = Math.min(width, height) * 0.35;
+            nodes.forEach(n => {
+                const fileIdx = uniqueFiles.indexOf(n.filePath);
+                const angle = fileIdx * angleStep;
+                n.x = (width / 2) + Math.cos(angle) * clusterRadius + (Math.random() - 0.5) * 40;
+                n.y = (height / 2) + Math.sin(angle) * clusterRadius + (Math.random() - 0.5) * 40;
+            });
+
+            link = linkGroup.selectAll("path")
+                .data(edges, d => d.id || `${d.source}-${d.target}`)
+                .join("path")
+                .attr("class", "edge")
+                .attr("stroke", d => getEdgeStroke(d))
+                .attr("stroke-dasharray", d => getEdgeDashArray(d))
+                .attr("stroke-width", d => getEdgeWidth(d))
+                .attr("marker-end", d => getEdgeMarker(d));
+
+            node = nodeGroup.selectAll("g")
+                .data(nodes, d => d.id)
+                .join("g")
+                .attr("class", "node");
+
+            node.selectAll("*").remove();
+
+            node.call(d3.drag()
+                .on("start", dragstarted)
+                .on("drag", dragged)
+                .on("end", dragended))
+                .on("click", (event, d) => {
+                    event.stopPropagation();
+                    handleNodeClick(d, event);
+                });
+
+            node.append("path")
+                .attr("d", d => d3.symbol()
+                    .type(getSymbolType(d.nodeType))
+                    .size(getSymbolSize(d.riskLevel))()
+                )
+                .attr("fill", d => getNodeColors(d.riskLevel).fill)
+                .attr("stroke", d => getNodeColors(d.riskLevel).stroke)
+                .attr("stroke-width", 2);
+
+            node.append("text")
+                .attr("dy", 24).attr("text-anchor", "middle").attr("font-size", "10px")
+                .attr("font-weight", "bold").attr("fill", "var(--fg)")
+                .attr("stroke", "var(--bg)").attr("stroke-width", "2px").attr("paint-order", "stroke")
+                .text(d => resolveLabel(d));
+
+            node.append("text")
+                .attr("dy", 35).attr("text-anchor", "middle").attr("font-size", "8px")
+                .attr("fill", "var(--fg)").attr("opacity", 0.7)
+                .attr("stroke", "var(--bg)").attr("stroke-width", "1.5px").attr("paint-order", "stroke")
+                .text(d => d.filePath.split(/[\\\\/]/).pop());
+
+            simulation.nodes(nodes);
+            simulation.force("link").links(edges);
+            simulation.alpha(1).restart();
+
+            simulation.on("tick", () => {
+                link.attr("d", d => `M${d.source.x},${d.source.y} L${d.target.x},${d.target.y}`);
+                node.attr("transform", d => `translate(${d.x},${d.y})`);
+                drawHulls();
+            });
+
+            // Auto-fit zoom AFTER simulation converges (not on a fixed timer)
+            simulation.on("end", () => {
+                autoFitGraph();
+            });
+
+            updateGraphVisibility();
+        }
+
+        // --- Interaction Logic ---
+
+        /**
+         * Performs a full BFS traversal of the edges array to collect ALL upstream
+         * ancestors and downstream descendants of a clicked node.
+         * @param {string} startId - The id of the clicked GhostflowNode.
+         * @returns {{ chainNodeIds: Set<string>, chainEdges: Set<object> }} Sets of in-chain node IDs and edge objects.
+         */
+        function getFullChain(startId) {
+            const chainNodeIds = new Set([startId]);
+            const chainEdges = new Set();
+            let frontier = [startId];
+
+            // Traverse downstream (source → target)
+            while (frontier.length > 0) {
+                const next = [];
+                edges.forEach(e => {
+                    const srcId = typeof e.source === 'object' ? e.source.id : e.source;
+                    const tgtId = typeof e.target === 'object' ? e.target.id : e.target;
+                    if (frontier.includes(srcId) && !chainNodeIds.has(tgtId)) {
+                        chainNodeIds.add(tgtId);
+                        chainEdges.add(e);
+                        next.push(tgtId);
+                    } else if (frontier.includes(srcId)) {
+                        chainEdges.add(e);
+                    }
+                });
+                frontier = next;
             }
 
-            const bg = getAbsoluteColor("var(--bg)");
-            const fg = getAbsoluteColor("var(--fg)");
-            const border = getAbsoluteColor("var(--border)");
-            const containerBg = getAbsoluteColor("var(--container-bg)");
-            const tainted = getAbsoluteColor("var(--tainted)");
-            const secure = getAbsoluteColor("var(--secure)");
-            const insecure = getAbsoluteColor("var(--insecure)");
-            const chartsBlue = getAbsoluteColor("var(--vscode-charts-blue)");
-            const chartsPurple = getAbsoluteColor("var(--vscode-charts-purple)");
-            const fontFamily = window.getComputedStyle(document.body).fontFamily;
+            // Traverse upstream (target → source)
+            frontier = [startId];
+            const visited = new Set([startId]);
+            while (frontier.length > 0) {
+                const next = [];
+                edges.forEach(e => {
+                    const srcId = typeof e.source === 'object' ? e.source.id : e.source;
+                    const tgtId = typeof e.target === 'object' ? e.target.id : e.target;
+                    if (frontier.includes(tgtId) && !visited.has(srcId)) {
+                        visited.add(srcId);
+                        chainNodeIds.add(srcId);
+                        chainEdges.add(e);
+                        next.push(srcId);
+                    } else if (frontier.includes(tgtId) && chainNodeIds.has(srcId)) {
+                        chainEdges.add(e);
+                    }
+                });
+                frontier = next;
+            }
 
-            const resolvedCSS = "svg { " +
-                "--bg: " + bg + "; " +
-                "--fg: " + fg + "; " +
-                "--border: " + border + "; " +
-                "--container-bg: " + containerBg + "; " +
-                "--tainted: " + tainted + "; " +
-                "--secure: " + secure + "; " +
-                "--insecure: " + insecure + "; " +
-                "--vscode-charts-blue: " + chartsBlue + "; " +
-                "--vscode-charts-purple: " + chartsPurple + "; " +
-            "} " +
-            ".cluster-rect { fill: var(--container-bg); stroke: var(--border); stroke-width: 2; rx: 10; ry: 10; } " +
-            ".cluster-label { font-size: 12px; font-weight: 800; fill: var(--fg); pointer-events: none; text-transform: uppercase; font-family: " + fontFamily + "; } " +
-            ".node circle { stroke-width: 2.5; } " +
-            ".edge { fill: none; stroke-opacity: 0.3; } " +
-            "text { font-family: " + fontFamily + "; }";
+            return { chainNodeIds, chainEdges };
+        }
 
-            // Extract the actual bounding box of the graph before transform
-            const gEl = svgEl.querySelector("g");
-            const originalTransform = gEl.getAttribute("transform");
-            gEl.removeAttribute("transform");
+        /**
+         * Positions and populates the custom tooltip near a clicked node.
+         * Clamps the position so the tooltip never renders outside the webview bounds.
+         * Uses DOM textContent only — never innerHTML of user data.
+         * @param {object} nodeData - The GhostflowNode datum that was clicked.
+         * @param {MouseEvent} event - The originating click event for cursor coordinates.
+         * @param {object|null} threat - Optional ThreatEntry for this node (may be null).
+         */
+        function showTooltip(nodeData, event, threat) {
+            const tt = document.getElementById('node-tooltip');
+            tt.replaceChildren();
 
-            const gBox = gEl.getBBox();
-            const padding = 100; // Increase padding to prevent any outer text from clipping
-            const originalViewBox = svgEl.getAttribute("viewBox");
-            
-            const exportWidth = gBox.width + padding * 2;
-            const exportHeight = gBox.height + padding * 2;
-            const newViewBox = (gBox.x - padding) + " " + (gBox.y - padding) + " " + exportWidth + " " + exportHeight;
-            
-            const originalWidth = svgEl.getAttribute("width");
-            const originalHeight = svgEl.getAttribute("height");
-            
-            svgEl.setAttribute("viewBox", newViewBox);
-            svgEl.setAttribute("width", exportWidth);
-            svgEl.setAttribute("height", exportHeight);
+            const labelEl = document.createElement('div');
+            labelEl.className = 'tt-label';
+            labelEl.textContent = resolveLabel(nodeData);
+            tt.appendChild(labelEl);
 
-            // Append style to SVG temporarily
-            const styleEl = document.createElement("style");
-            styleEl.textContent = resolvedCSS;
-            svgEl.prepend(styleEl);
+            const fields = [
+                { key: 'File', val: nodeData.filePath.split(/[\\/]/).pop() },
+                { key: 'Line', val: String(nodeData.lineNumber ?? nodeData.line ?? '?') },
+                { key: 'Risk', val: (nodeData.riskLevel || nodeData.severity || 'unknown').toUpperCase() },
+            ];
 
+            fields.forEach(({ key, val }) => {
+                const row = document.createElement('div'); row.className = 'tt-row';
+                const k = document.createElement('span'); k.className = 'tt-key'; k.textContent = key + ':';
+                const v = document.createElement('span'); v.textContent = val;
+                row.appendChild(k); row.appendChild(v); tt.appendChild(row);
+            });
+
+            if (threat) {
+                const cweRow = document.createElement('div'); cweRow.className = 'tt-row';
+                const cweK = document.createElement('span'); cweK.className = 'tt-key'; cweK.textContent = 'CWE:';
+                const cweV = document.createElement('span'); cweV.className = 'tt-cwe';
+                cweV.textContent = threat.cweId + ' – ' + threat.cweName;
+                cweRow.appendChild(cweK); cweRow.appendChild(cweV); tt.appendChild(cweRow);
+
+                const owaspRow = document.createElement('div'); owaspRow.className = 'tt-row';
+                const owK = document.createElement('span'); owK.className = 'tt-key'; owK.textContent = 'OWASP:';
+                const owV = document.createElement('span'); owV.className = 'tt-owasp'; owV.textContent = threat.owaspCategory;
+                owaspRow.appendChild(owK); owaspRow.appendChild(owV); tt.appendChild(owaspRow);
+
+                const fixEl = document.createElement('div'); fixEl.className = 'tt-fix';
+                fixEl.textContent = '💡 ' + threat.remediation;
+                tt.appendChild(fixEl);
+            }
+
+            // Show offscreen first to measure real dimensions
+            tt.style.display = 'block';
+            tt.style.left = '-9999px';
+            tt.style.top = '-9999px';
+
+            const ttW = tt.offsetWidth;
+            const ttH = tt.offsetHeight;
+            const vpW = window.innerWidth;
+            const vpH = window.innerHeight;
+            const MARGIN = 14;
+
+            // Clamp so tooltip stays within viewport
+            const rawX = event.clientX + MARGIN;
+            const rawY = event.clientY + MARGIN;
+            const clampedX = Math.min(rawX, vpW - ttW - MARGIN);
+            const clampedY = Math.min(rawY, vpH - ttH - MARGIN);
+
+            tt.style.left = clampedX + 'px';
+            tt.style.top = clampedY + 'px';
+        }
+
+        /**
+         * Hides the custom tooltip and resets all node/edge opacity to 1.0.
+         */
+        function resetFocus() {
+            node.style('opacity', 1).style('filter', null);
+            link.style('opacity', 0.4).style('filter', null);
+            document.getElementById('node-tooltip').style.display = 'none';
+        }
+
+        /**
+         * Handles a node click: computes the full upstream/downstream chain,
+         * dims all out-of-chain elements, applies a white glow to in-chain elements,
+         * and shows the custom tooltip. Also sends a jumpToCode message.
+         * @param {object} d - The GhostflowNode datum of the clicked node.
+         * @param {MouseEvent} event - The originating mouse click event.
+         */
+        function handleNodeClick(d, event) {
+            const { chainNodeIds, chainEdges } = getFullChain(d.id);
+
+            // Apply inline opacity — overrides visibility filter temporarily
+            node.style('opacity', n => chainNodeIds.has(n.id) ? 1.0 : 0.08)
+                .style('filter', n => chainNodeIds.has(n.id)
+                    ? 'drop-shadow(0 0 4px #ffffff66)'
+                    : null
+                );
+
+            link.style('opacity', e => chainEdges.has(e) ? 0.9 : 0.08)
+                .style('filter', e => chainEdges.has(e)
+                    ? 'drop-shadow(0 0 3px #ffffff44)'
+                    : null
+                );
+
+            // Lookup threat for this node from threats array (injected by VisualizerProvider)
+            const threat = (typeof threats !== 'undefined')
+                ? threats.find(t => t.nodeId === d.id) ?? null
+                : null;
+
+            showTooltip(d, event, threat);
+
+            // Jump to source with a slight delay so click does not feel laggy
+            setTimeout(() => {
+                vscodeApi.postMessage({
+                    command: 'jumpToCode',
+                    filePath: d.filePath,
+                    line: d.lineNumber ?? d.line ?? 0,
+                    character: d.columnNumber ?? d.character ?? 0
+                });
+            }, 300);
+        }
+
+        svg.on("click", () => resetFocus());
+
+        // Also reset on Escape key
+        document.addEventListener('keydown', e => { if (e.key === 'Escape') resetFocus(); });
+
+        function updateGraphVisibility() {
+            // Use visibility to preserve space without conflicting with CSS opacity transitions
+            node.style("visibility", d => activeFilters.has((d.severity || 'None').charAt(0).toUpperCase() + (d.severity || 'None').slice(1)) ? "visible" : "hidden")
+                .style("pointer-events", d => activeFilters.has((d.severity || 'None').charAt(0).toUpperCase() + (d.severity || 'None').slice(1)) ? "all" : "none");
+
+            link.style("visibility", d => {
+                const s = typeof d.source === 'object' ? d.source : nodes.find(n => n.id === d.source);
+                const t = typeof d.target === 'object' ? d.target : nodes.find(n => n.id === d.target);
+
+                // Safeguard against missing endpoints
+                if (!s || !t) return "hidden";
+
+                const sVisible = activeFilters.has((s.severity || 'None').charAt(0).toUpperCase() + (s.severity || 'None').slice(1));
+                const tVisible = activeFilters.has((t.severity || 'None').charAt(0).toUpperCase() + (t.severity || 'None').slice(1));
+                return (sVisible && tVisible) ? "visible" : "hidden";
+            }).style("pointer-events", d => {
+                const s = typeof d.source === 'object' ? d.source : nodes.find(n => n.id === d.source);
+                const t = typeof d.target === 'object' ? d.target : nodes.find(n => n.id === d.target);
+                if (!s || !t) return "none";
+                return (activeFilters.has((s.severity || 'None').charAt(0).toUpperCase() + (s.severity || 'None').slice(1)) && activeFilters.has((t.severity || 'None').charAt(0).toUpperCase() + (t.severity || 'None').slice(1))) ? "all" : "none";
+            });
+        }
+
+        function dragstarted(event) {
+            if (!event.active) simulation.alphaTarget(0.05).restart();
+            event.subject.fx = event.subject.x;
+            event.subject.fy = event.subject.y;
+        }
+        function dragged(event) {
+            event.subject.fx = event.x;
+            event.subject.fy = event.y;
+        }
+        function dragended(event) {
+            if (!event.active) simulation.alphaTarget(0);
+            event.subject.fx = null;
+            event.subject.fy = null;
+        }
+
+        /**
+         * Downloads the current graph as a high-resolution PNG.
+         *
+         * Design notes vs. previous implementation:
+         *  1. Clones the live SVG so the active view is NEVER mutated.
+         *  2. Walks every element in the clone and resolves all CSS variable
+         *     references (var(--*)) to absolute RGB via getComputedStyle on
+         *     the corresponding live element — so colors survive serialization.
+         *  3. Uses the inner <g> bounding box (settled node positions) rather
+         *     than the 2000x2000 virtual canvas, eliminating wasted whitespace.
+         *  4. Appends a title banner + legend panel directly into the clone SVG.
+         *  5. Rasterizes at 3x DPR for sharp text at any zoom level.
+         */
+        function downloadPNG() {
+            const svgEl = document.querySelector('#chart svg');
+            if (!svgEl) return;
+
+            // ── Resolve a CSS custom property to an absolute rgb() value ─────
+            const _colorCache = {};
+            const _probeEl = document.createElement('div');
+            _probeEl.style.display = 'none';
+            document.body.appendChild(_probeEl);
+            function resolveColor(val) {
+                if (!val || val === 'none') return val;
+                if (_colorCache[val]) return _colorCache[val];
+                _probeEl.style.color = val;
+                const r = window.getComputedStyle(_probeEl).color;
+                _colorCache[val] = r || val;
+                return _colorCache[val];
+            }
+
+            // Pre-resolve the full palette
+            const BG = resolveColor('var(--bg)');
+            const FG = resolveColor('var(--fg)');
+            const COL_CRITICAL = resolveColor('var(--critical)');
+            const COL_HIGH = resolveColor('var(--high)');
+            const COL_MEDIUM = resolveColor('var(--medium)');
+            const COL_LOW = resolveColor('var(--low)');
+            const COL_SECURE = resolveColor('var(--secure)');
+            const FONT = window.getComputedStyle(document.body).fontFamily;
+            _probeEl.remove();
+
+            // ── Clone the live SVG so the active view is NEVER mutated ────────
+            const clone = svgEl.cloneNode(true);
+
+            // Remove zoom transform from clone's inner-g so content renders at 1:1
+            const cloneInnerG = clone.querySelector('g');
+            if (cloneInnerG) cloneInnerG.removeAttribute('transform');
+
+            // ── Inline computed fill/stroke on every element in the clone ─────
+            // We pair each live element with its clone counterpart by index so we
+            // can read getComputedStyle on the live DOM (clone isn't mounted, so
+            // getComputedStyle returns defaults on it).
+            const liveEls = Array.from(svgEl.querySelectorAll('*'));
+            const cloneEls = Array.from(clone.querySelectorAll('*'));
+            liveEls.forEach((liveEl, i) => {
+                const cloneEl = cloneEls[i];
+                if (!cloneEl) return;
+                const cs = window.getComputedStyle(liveEl);
+
+                // Inline fill — resolves var(--*) and computed cascades
+                const fill = cs.fill || '';
+                const stroke = cs.stroke || '';
+                if (fill && fill !== 'none') cloneEl.setAttribute('fill', fill);
+                if (stroke && stroke !== 'none') cloneEl.setAttribute('stroke', stroke);
+
+                // Sweep remaining var(--*) literals left in SVG presentation attrs
+                ['fill', 'stroke', 'color', 'stop-color'].forEach(attr => {
+                    const v = cloneEl.getAttribute(attr) || '';
+                    if (v.includes('var(')) cloneEl.setAttribute(attr, resolveColor(v));
+                });
+
+                // Inline font-family so text survives canvas rasterization
+                if (liveEl.tagName.toLowerCase() === 'text') {
+                    cloneEl.setAttribute('font-family', FONT);
+                }
+            });
+
+            // ── Compute TIGHT bounding box from the live inner-g ─────────────
+            // Temporarily strip transform from the live inner-g to get sim coords,
+            // then restore it immediately — the live view never visually changes.
+            const liveInnerG = svgEl.querySelector('g');
+            const savedTransform = liveInnerG ? liveInnerG.getAttribute('transform') : null;
+            if (liveInnerG && savedTransform) liveInnerG.removeAttribute('transform');
+            const gBox = liveInnerG ? liveInnerG.getBBox() : { x: 0, y: 0, width: 800, height: 600 };
+            if (liveInnerG && savedTransform) liveInnerG.setAttribute('transform', savedTransform);
+
+            if (gBox.width < 1 || gBox.height < 1) {
+                console.warn('[Ghostflow] downloadPNG: empty bounding box — aborting.');
+                return;
+            }
+
+            // ── Layout constants ──────────────────────────────────────────────
+            const svgNS = 'http://www.w3.org/2000/svg';
+            const PAD = 60;
+            const TITLE_H = 52;
+            const LEGEND_W = 230;
+            const LEGEND_PAD = 14;
+            const ROW_H = 22;
+
+            const legendItems = [
+                { label: 'Critical node', color: COL_CRITICAL, shape: 'circle' },
+                { label: 'High node', color: COL_HIGH, shape: 'circle' },
+                { label: 'Medium node', color: COL_MEDIUM, shape: 'circle' },
+                { label: 'Low / Secure node', color: COL_LOW, shape: 'circle' },
+                { label: 'Tainted flow', color: COL_CRITICAL, shape: 'line-solid' },
+                { label: 'Sanitized flow', color: COL_SECURE, shape: 'line-dash' },
+                { label: 'Neutral flow', color: '#888888', shape: 'line-dot' },
+            ];
+            const LEGEND_H = LEGEND_PAD * 2 + 24 + legendItems.length * ROW_H;
+
+            const contentW = gBox.width + PAD * 2;
+            const contentH = gBox.height + PAD * 2;
+            const exportW = contentW + LEGEND_W + 12;
+            const exportH = Math.max(contentH, LEGEND_H) + TITLE_H;
+
+            // Apply the tight viewBox to the clone
+            clone.setAttribute('width', String(exportW));
+            clone.setAttribute('height', String(exportH));
+            clone.setAttribute('viewBox',
+                `${gBox.x - PAD} ${gBox.y - PAD - TITLE_H} ${exportW} ${exportH}`
+            );
+
+            // ── Background rect (ensures solid fill even before canvas draw) ─
+            const bgRect = document.createElementNS(svgNS, 'rect');
+            bgRect.setAttribute('x', String(gBox.x - PAD));
+            bgRect.setAttribute('y', String(gBox.y - PAD - TITLE_H));
+            bgRect.setAttribute('width', String(exportW));
+            bgRect.setAttribute('height', String(exportH));
+            bgRect.setAttribute('fill', BG);
+            clone.insertBefore(bgRect, clone.firstChild);
+
+            // ── Title banner ──────────────────────────────────────────────────
+            const originX = gBox.x - PAD;
+            const originY = gBox.y - PAD - TITLE_H;
+
+            const titleEl = document.createElementNS(svgNS, 'text');
+            titleEl.setAttribute('x', String(originX + 16));
+            titleEl.setAttribute('y', String(originY + 28));
+            titleEl.setAttribute('font-size', '17');
+            titleEl.setAttribute('font-weight', 'bold');
+            titleEl.setAttribute('font-family', FONT);
+            titleEl.setAttribute('fill', FG);
+            titleEl.textContent = 'Ghostflow — Security Architecture Map';
+            clone.appendChild(titleEl);
+
+            const subtitleEl = document.createElementNS(svgNS, 'text');
+            subtitleEl.setAttribute('x', String(originX + 16));
+            subtitleEl.setAttribute('y', String(originY + 46));
+            subtitleEl.setAttribute('font-size', '10');
+            subtitleEl.setAttribute('font-family', FONT);
+            subtitleEl.setAttribute('fill', FG);
+            subtitleEl.setAttribute('opacity', '0.5');
+            const taintedCount = edges.filter(e => e.tainted === true || e.flowType === 'tainted').length;
+            subtitleEl.textContent =
+                `Generated ${new Date().toLocaleString()}  ·  ${nodes.length} nodes  ·  ${taintedCount} tainted paths`;
+            clone.appendChild(subtitleEl);
+
+            // Separator line under title
+            const sepEl = document.createElementNS(svgNS, 'line');
+            sepEl.setAttribute('x1', String(originX));
+            sepEl.setAttribute('y1', String(originY + TITLE_H - 4));
+            sepEl.setAttribute('x2', String(originX + exportW));
+            sepEl.setAttribute('y2', String(originY + TITLE_H - 4));
+            sepEl.setAttribute('stroke', FG);
+            sepEl.setAttribute('stroke-opacity', '0.15');
+            sepEl.setAttribute('stroke-width', '1');
+            clone.appendChild(sepEl);
+
+            // ── Legend panel ──────────────────────────────────────────────────
+            const legendX = originX + contentW + 6;
+            const legendY = originY + TITLE_H + 8;
+
+            const legendBg = document.createElementNS(svgNS, 'rect');
+            legendBg.setAttribute('x', String(legendX));
+            legendBg.setAttribute('y', String(legendY));
+            legendBg.setAttribute('width', String(LEGEND_W - 12));
+            legendBg.setAttribute('height', String(LEGEND_H));
+            legendBg.setAttribute('rx', '6');
+            legendBg.setAttribute('fill', FG);
+            legendBg.setAttribute('fill-opacity', '0.04');
+            legendBg.setAttribute('stroke', FG);
+            legendBg.setAttribute('stroke-opacity', '0.12');
+            legendBg.setAttribute('stroke-width', '1');
+            clone.appendChild(legendBg);
+
+            const legTitleEl = document.createElementNS(svgNS, 'text');
+            legTitleEl.setAttribute('x', String(legendX + LEGEND_PAD));
+            legTitleEl.setAttribute('y', String(legendY + LEGEND_PAD + 10));
+            legTitleEl.setAttribute('font-size', '9');
+            legTitleEl.setAttribute('font-weight', 'bold');
+            legTitleEl.setAttribute('letter-spacing', '0.1em');
+            legTitleEl.setAttribute('font-family', FONT);
+            legTitleEl.setAttribute('fill', FG);
+            legTitleEl.setAttribute('opacity', '0.45');
+            legTitleEl.textContent = 'LEGEND';
+            clone.appendChild(legTitleEl);
+
+            legendItems.forEach((item, idx) => {
+                const rowY = legendY + LEGEND_PAD + 24 + idx * ROW_H;
+                const iconX = legendX + LEGEND_PAD + 10;
+                const iconY = rowY + ROW_H / 2 - 3;
+
+                if (item.shape.startsWith('line')) {
+                    const lineEl = document.createElementNS(svgNS, 'line');
+                    lineEl.setAttribute('x1', String(iconX - 9));
+                    lineEl.setAttribute('y1', String(iconY));
+                    lineEl.setAttribute('x2', String(iconX + 9));
+                    lineEl.setAttribute('y2', String(iconY));
+                    lineEl.setAttribute('stroke', item.color);
+                    lineEl.setAttribute('stroke-width', '2');
+                    if (item.shape === 'line-dash') lineEl.setAttribute('stroke-dasharray', '5,3');
+                    if (item.shape === 'line-dot') lineEl.setAttribute('stroke-dasharray', '2,3');
+                    clone.appendChild(lineEl);
+                } else {
+                    const circ = document.createElementNS(svgNS, 'circle');
+                    circ.setAttribute('cx', String(iconX));
+                    circ.setAttribute('cy', String(iconY));
+                    circ.setAttribute('r', '6');
+                    circ.setAttribute('fill', item.color);
+                    circ.setAttribute('stroke', BG);
+                    circ.setAttribute('stroke-width', '1.5');
+                    clone.appendChild(circ);
+                }
+
+                const lbl = document.createElementNS(svgNS, 'text');
+                lbl.setAttribute('x', String(iconX + 16));
+                lbl.setAttribute('y', String(iconY + 4));
+                lbl.setAttribute('font-size', '11');
+                lbl.setAttribute('font-family', FONT);
+                lbl.setAttribute('fill', FG);
+                lbl.textContent = item.label;
+                clone.appendChild(lbl);
+            });
+
+            // ── Serialize fully-resolved clone ────────────────────────────────
             const serializer = new XMLSerializer();
-            const source = '<?xml version="1.0" standalone="no"?>\r\n' + serializer.serializeToString(svgEl);
-            
-            // Remove style tag and restore attributes
-            styleEl.remove();
-            svgEl.setAttribute("viewBox", originalViewBox);
-            if (originalWidth) svgEl.setAttribute("width", originalWidth);
-            if (originalHeight) svgEl.setAttribute("height", originalHeight);
-            if (originalTransform) gEl.setAttribute("transform", originalTransform);
-            
-            const canvas = document.createElement("canvas");
-            canvas.width = exportWidth * 2; // High res
-            canvas.height = exportHeight * 2;
-            const ctx = canvas.getContext("2d");
-            ctx.scale(2, 2);
-            
-            const img = new Image();
-            const svgBlob = new Blob([source], {type: "image/svg+xml;charset=utf-8"});
+            const svgStr = '<?xml version="1.0" standalone="no"?>\r\n' + serializer.serializeToString(clone);
+
+            // ── Rasterize at 3× DPR ───────────────────────────────────────────
+            const SCALE = 3;
+            const canvas = document.createElement('canvas');
+            canvas.width = exportW * SCALE;
+            canvas.height = exportH * SCALE;
+            const ctx = canvas.getContext('2d');
+            ctx.scale(SCALE, SCALE);
+
+            const svgBlob = new Blob([svgStr], { type: 'image/svg+xml;charset=utf-8' });
             const url = URL.createObjectURL(svgBlob);
-            
-            img.onload = function() {
-                ctx.fillStyle = bg;
-                ctx.fillRect(0, 0, canvas.width, canvas.height);
-                ctx.drawImage(img, 0, 0);
-                const pngUrl = canvas.toDataURL("image/png");
-                vscodeApi.postMessage({ command: 'downloadPNG', data: pngUrl });
+            const img = new Image();
+
+            img.onload = function () {
+                ctx.fillStyle = BG;
+                ctx.fillRect(0, 0, exportW, exportH);
+                ctx.drawImage(img, 0, 0, exportW, exportH);
                 URL.revokeObjectURL(url);
+                vscodeApi.postMessage({ command: 'downloadPNG', data: canvas.toDataURL('image/png') });
             };
-            img.onerror = function(err) {
-                console.error("Image loading failed", err);
+            img.onerror = function () {
+                URL.revokeObjectURL(url);
+                console.error('[Ghostflow] downloadPNG: SVG rasterization failed.');
             };
             img.src = url;
         }
 
-        // --- D3 Graph Logic ---
-        const width = window.innerWidth;
-        const viewportHeight = window.innerHeight;
-        const simHeight = Math.max(viewportHeight * 1.2, rawNodes.length * 50); // Ensure ample vertical spacing
-
-        const svg = d3.select("#chart").append("svg")
-            .attr("width", "100%")
-            .attr("height", "100%")
-            .attr("viewBox", [0, 0, width, viewportHeight])
-            .call(zoom);
-
-        const g = svg.append("g");
-
-        // Define SVG markers for arrowheads
-        svg.append("defs").selectAll("marker")
-            .data(["end-tainted", "end-secure", "end-insecure", "end-border"])
-            .join("marker")
-            .attr("id", String)
-            .attr("viewBox", "0 -5 10 10")
-            .attr("refX", 22) // Offset from center to edge of radius
-            .attr("refY", 0)
-            .attr("orient", "auto")
-            .attr("markerWidth", 5)
-            .attr("markerHeight", 5)
-            .append("path")
-            .attr("d", "M0,-4 L8,0 L0,4")
-            .attr("fill", d => {
-                if (d === 'end-tainted') return "var(--tainted)";
-                if (d === 'end-secure') return "var(--secure)";
-                if (d === 'end-insecure') return "var(--insecure)";
-                return "var(--border)";
-            });
-
-        // Filter out isolated nodes that do not participate in any edge
-        const connectedNodeIds = new Set();
-        rawEdges.forEach(e => {
-            connectedNodeIds.add(e.from);
-            connectedNodeIds.add(e.to);
-        });
-
-        const nodes = rawNodes.map(d => ({ ...d })).filter(n => connectedNodeIds.has(n.id));
-
-        if (nodes.length === 0) {
-            document.body.innerHTML = '<div style="color:var(--vscode-charts-green); padding:50px; text-align:center; font-family:var(--vscode-font-family);"><h2 style="margin-bottom:10px;">&#10003; SYSTEM SECURE</h2><p>No active cross-boundary data flows or tainted chains were detected.</p></div>';
-            throw new Error("SYSTEM SECURE: Halting D3 execution because no active flows exist.");
+        /**
+         * Auto-fits the graph into the visible container by computing the
+         * bounding box of all rendered elements and applying a zoom transform.
+         * Called after simulation convergence so all nodes are settled.
+         */
+        function autoFitGraph() {
+            const gBox = g.node().getBBox();
+            if (gBox.width === 0 || gBox.height === 0) return;
+            const fitW = chartContainer.clientWidth || 660;
+            const fitH = chartContainer.clientHeight || 600;
+            const padding = 60;
+            const scaleX = fitW / (gBox.width + padding * 2);
+            const scaleY = fitH / (gBox.height + padding * 2);
+            const finalScale = Math.min(scaleX, scaleY, 1.5);
+            svg.transition().duration(800).call(zoom.transform, d3.zoomIdentity
+                .translate(
+                    fitW / 2 - (gBox.x + gBox.width / 2) * finalScale,
+                    fitH / 2 - (gBox.y + gBox.height / 2) * finalScale
+                )
+                .scale(finalScale)
+            );
         }
 
-        // Structured Hierarchical Layout
-        const files = d3.groups(nodes, d => d.filePath)
-            .sort((a, b) => a[0].localeCompare(b[0]));
-        
-        // Define Cluster Regions
-        const clusterMap = new Map();
-        files.forEach((f, i) => {
-            clusterMap.set(f[0], {
-                y: (i + 0.5) * (simHeight / Math.max(1, files.length)),
-                x: width / 2,
-                nodes: f[1]
-            });
-        });
-
-        // Compute bundles
-        const bundles = new Map();
-        const internalEdges = [];
-        rawEdges.forEach(e => {
-            const source = nodes.find(n => n.id === e.from);
-            const target = nodes.find(n => n.id === e.to);
-            if (!source || !target) return;
-
-            if (source.filePath === target.filePath) {
-                internalEdges.push({ ...e, source, target });
-            } else {
-                const bundleId = source.filePath < target.filePath ? 
-                    source.filePath + "->" + target.filePath : 
-                    target.filePath + "->" + source.filePath;
-                if (!bundles.has(bundleId)) {
-                    bundles.set(bundleId, {
-                        id: bundleId, fileA: source.filePath, fileB: target.filePath,
-                        count: 0, tainted: false
-                    });
-                }
-                const b = bundles.get(bundleId);
-                b.count++;
-                if (e.tainted) b.tainted = true;
-            }
-        });
-
-        // simulation logic
-        const simulation = d3.forceSimulation(nodes)
-            .force("link", d3.forceLink(internalEdges).id(d => d.id).distance(280).strength(0.8))
-            .force("charge", d3.forceManyBody().strength(-200))
-            .force("y", d3.forceY().y(d => clusterMap.get(d.filePath).y).strength(2))
-            .force("x", d3.forceX().x(d => {
-                // True Left-to-Right flow
-                if (d.label === 'Sensitive Source' || d.label.toLowerCase().includes('key') || d.label.toLowerCase().includes('secret')) return width * 0.2; // Sources on left
-                if (d.type === 'ProcessNode') return width * 0.5; // Process in middle
-                if (d.type === 'DataStore') return width * 0.8; // External Sinks on right
-                return width * 0.5;
-            }).strength(1))
-            .force("collision", d3.forceCollide().radius(40))
-            .alphaDecay(0.05); // Cool down fast
-
-        // Draw clusters
-        const clusters = g.append("g").selectAll("g").data(files).join("g");
-        
-        clusters.append("rect").attr("class", "cluster-rect");
-        clusters.append("text").attr("class", "cluster-label")
-            .text(d => "TRUST BOUNDARY: " + d[0].split(/[\\\\/]/).pop().replace(/\.(ts|js|tsx|jsx)$/, ''));
-
-        // Draw bundle edges
-        const bundleLinks = g.append("g").selectAll("line").data(Array.from(bundles.values())).join("line")
-            .attr("stroke", d => d.tainted ? "var(--tainted)" : "var(--border)")
-            .attr("stroke-width", d => Math.min(8, 2 + d.count))
-            .attr("stroke-dasharray", "4,4")
-            .attr("opacity", 0.4)
-            .attr("marker-end", d => d.tainted ? "url(#end-tainted)" : "url(#end-border)");
-
-        const bundleLabels = g.append("g").selectAll("text.bundle-label").data(Array.from(bundles.values())).join("text")
-            .attr("class", "edge-label bundle-label")
-            .attr("text-anchor", "middle")
-            .attr("dy", -5)
-            .attr("font-size", "10px")
-            .attr("font-weight", "bold")
-            .attr("fill", d => d.tainted ? "var(--tainted)" : "var(--fg)")
-            .text(d => d.count + " Cross-File Flow" + (d.count > 1 ? "s" : ""));
-
-        // Draw internal edges
-        const internalLinks = g.append("g").selectAll("path").data(internalEdges).join("path")
-            .attr("fill", "none")
-            .attr("stroke", d => d.tainted ? "var(--tainted)" : (d.secure ? "var(--secure)" : "var(--insecure)"))
-            .attr("stroke-width", d => d.tainted ? 3 : 1.5)
-            .attr("opacity", 0.8)
-            .attr("marker-end", d => `url(#end-${d.tainted ? 'tainted' : (d.secure ? 'secure' : 'insecure')})`);
-
-        const internalLabels = g.append("g").selectAll("text.internal-label").data(internalEdges).join("text")
-            .attr("class", "edge-label internal-label")
-            .attr("text-anchor", "middle")
-            .attr("dy", 14)
-            .attr("font-size", "9px")
-            .attr("paint-order", "stroke")
-            .attr("stroke", "var(--bg)")
-            .attr("stroke-width", 3)
-            .attr("fill", "var(--fg)")
-            .text(d => d.label);
-
-        // Draw nodes
-        const node = g.append("g").selectAll("g").data(nodes).join("g")
-            .attr("class", "node")
-            .on("click", (event, d) => {
-                vscodeApi.postMessage({ command: 'jumpToCode', filePath: d.filePath, line: d.line, character: d.character });
-            });
-
-        node.append("circle")
-            .attr("r", d => d.type === 'DataStore' ? 12 : 9)
-            .attr("fill", d => d.type === 'DataStore' ? "var(--vscode-charts-blue)" : "var(--vscode-charts-purple)")
-            .attr("stroke", "var(--bg)")
-            .attr("stroke-width", 2);
-
-        node.append("text")
-            .attr("dy", 20).attr("text-anchor", "middle").attr("font-size", "10px").attr("fill", "var(--fg)")
-            .text(d => d.label);
-
-        simulation.on("tick", () => {
-            internalLinks.attr("d", d => {
-                return "M" + d.source.x + "," + d.source.y + "L" + d.target.x + "," + d.target.y;
-            });
-
-            internalLabels
-                .attr("x", d => (d.source.x + d.target.x) / 2)
-                .attr("y", d => (d.source.y + d.target.y) / 2);
-
-            bundleLinks
-                .attr("x1", d => d.x1 = d3.mean(nodes.filter(n => n.filePath === d.fileA), n => n.x))
-                .attr("y1", d => d.y1 = d3.mean(nodes.filter(n => n.filePath === d.fileA), n => n.y))
-                .attr("x2", d => d.x2 = d3.mean(nodes.filter(n => n.filePath === d.fileB), n => n.x))
-                .attr("y2", d => d.y2 = d3.mean(nodes.filter(n => n.filePath === d.fileB), n => n.y));
-
-            bundleLabels
-                .attr("x", d => (d.x1 + d.x2) / 2)
-                .attr("y", d => (d.y1 + d.y2) / 2);
-
-            node.attr("transform", d => "translate(" + d.x + "," + d.y + ")");
-
-            clusters.each(function(d) {
-                const fileNodes = nodes.filter(n => n.filePath === d[0]);
-                if (fileNodes.length === 0) return;
-                const minX = d3.min(fileNodes, n => n.x) - 60, minY = d3.min(fileNodes, n => n.y) - 40;
-                const maxX = d3.max(fileNodes, n => n.x) + 60, maxY = d3.max(fileNodes, n => n.y) + 40;
-                d3.select(this).select("rect").attr("x", minX).attr("y", minY).attr("width", Math.max(100, maxX - minX)).attr("height", Math.max(60, maxY - minY));
-                d3.select(this).select("text").attr("x", minX + 10).attr("y", minY + 18);
-            });
-        });
-        
-        // Auto-fit view after initial simulation settling
-        setTimeout(() => {
-            const gBox = svg.select("g").node().getBBox();
-            if (gBox.width === 0 || gBox.height === 0) return;
-            const scale = Math.min(width / (gBox.width + 100), viewportHeight / (gBox.height + 100));
-            const finalScale = Math.min(1.2, Math.max(0.2, scale));
-            const tx = (width - gBox.width * finalScale) / 2 - gBox.x * finalScale;
-            const ty = (viewportHeight - gBox.height * finalScale) / 2 - gBox.y * finalScale;
-            
-            svg.transition().duration(1000)
-               .call(zoom.transform, d3.zoomIdentity.translate(tx, ty).scale(finalScale));
-        }, 1200);
-
-        window.addEventListener('resize', () => {
-            svg.attr("viewBox", [0, 0, window.innerWidth, window.innerHeight]);
-        });
+        // Also auto-fit on initial load (fallback if simulation was already stopped)
+        setTimeout(() => { autoFitGraph(); }, 2500);
     </script>
 </body>
+
 </html>

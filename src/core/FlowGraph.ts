@@ -30,6 +30,11 @@ export interface FlowNode {
      * Used to determine http:// vs https:// for trust boundary coloring.
      */
     rawValue: string;
+    /**
+     * Whether this node is an intermediate alias (e.g. const x = y).
+     * Internal nodes are hidden in the "Compressed View" to reduce clutter.
+     */
+    isInternal?: boolean;
 }
 
 /**
@@ -116,6 +121,66 @@ export class FlowGraph {
      */
     public getEdges(): FlowEdge[] {
         return [...this.edges];
+    }
+
+    /**
+     * Returns a compressed version of the graph's edges by bypassing intermediate "isInternal" nodes.
+     * For any chain A -> B1 -> B2 -> C, if all B nodes are isInternal, it returns A -> C.
+     * Security flags (tainted, secure) are preserved across the chain.
+     */
+    public getCompressedEdges(): FlowEdge[] {
+        const compressed: FlowEdge[] = [];
+        const internalNodeIds = new Set(
+            this.getNodes().filter(n => n.isInternal).map(n => n.id)
+        );
+
+        // Build adjacency map for internal traversal
+        const adj = new Map<string, FlowEdge[]>();
+        for (const edge of this.edges) {
+            if (!adj.has(edge.from)) adj.set(edge.from, []);
+            adj.get(edge.from)!.push(edge);
+        }
+
+        // Process edges starting from non-internal nodes
+        for (const startNode of this.getNodes()) {
+            if (startNode.isInternal) continue;
+
+            const edgesFromStart = adj.get(startNode.id) || [];
+            for (const rootEdge of edgesFromStart) {
+                this.tracePath(rootEdge, internalNodeIds, adj, compressed);
+            }
+        }
+
+        return compressed;
+    }
+
+    /**
+     * Recursively traces a path through internal nodes to find the next meaningful sink/process.
+     */
+    private tracePath(
+        currentEdge: FlowEdge, 
+        internalNodeIds: Set<string>, 
+        adj: Map<string, FlowEdge[]>, 
+        results: FlowEdge[]
+    ): void {
+        if (!internalNodeIds.has(currentEdge.to)) {
+            // Reached a non-internal node, add the compressed edge
+            results.push(currentEdge);
+            return;
+        }
+
+        // currentEdge.to is an internal node, recurse into its children
+        const children = adj.get(currentEdge.to) || [];
+        for (const child of children) {
+            const mergedEdge: FlowEdge = {
+                from: currentEdge.from,
+                to: child.to,
+                label: currentEdge.label === child.label ? currentEdge.label : `${currentEdge.label} → ${child.label}`,
+                secure: currentEdge.secure && child.secure,
+                tainted: currentEdge.tainted || child.tainted
+            };
+            this.tracePath(mergedEdge, internalNodeIds, adj, results);
+        }
     }
 
     /**

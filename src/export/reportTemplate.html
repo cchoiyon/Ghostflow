@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Ghostflow Security Audit — {{WORKSPACE_NAME}}</title>
+  <style>
+    /* Dark professional theme */
+    body { font-family: 'Segoe UI', system-ui, sans-serif; background: #0d0d0d; color: #e0e0e0; margin: 0; padding: 0; }
+    header { background: #111; border-bottom: 1px solid #222; padding: 24px 40px; display: flex; justify-content: space-between; align-items: center; }
+    header h1 { margin: 0; font-size: 20px; color: #fff; letter-spacing: 0.5px; }
+    header span { font-size: 13px; color: #666; }
+    .section { padding: 32px 40px; border-bottom: 1px solid #1a1a1a; }
+    .section h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 1.5px; color: #555; margin: 0 0 20px 0; }
+    .summary-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
+    .summary-card { background: #111; border: 1px solid #1e1e1e; border-radius: 8px; padding: 20px; }
+    .summary-card .count { font-size: 36px; font-weight: 700; }
+    .summary-card .label { font-size: 12px; color: #666; margin-top: 4px; }
+    .critical .count { color: #ff3b3b; }
+    .high .count { color: #ff7c00; }
+    .medium .count { color: #f5c518; }
+    .low .count { color: #4fc3f7; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    thead tr { border-bottom: 1px solid #222; }
+    thead th { text-align: left; padding: 10px 12px; color: #555; font-weight: 500; font-size: 11px; text-transform: uppercase; letter-spacing: 1px; }
+    tbody tr { border-bottom: 1px solid #161616; }
+    tbody tr:hover { background: #111; }
+    tbody td { padding: 12px; vertical-align: top; }
+    .badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; }
+    .badge-critical { background: #3b0000; color: #ff3b3b; }
+    .badge-high { background: #2a1500; color: #ff7c00; }
+    .badge-medium { background: #2a2000; color: #f5c518; }
+    .badge-low { background: #001a2a; color: #4fc3f7; }
+    .cwe-link { color: #4fc3f7; text-decoration: none; font-size: 11px; }
+    .cwe-link:hover { text-decoration: underline; }
+    .file-path { color: #666; font-size: 11px; font-family: monospace; }
+    .remediation { color: #aaa; font-size: 12px; line-height: 1.5; }
+    details { border: 1px solid #1e1e1e; border-radius: 6px; margin-bottom: 8px; }
+    summary { padding: 12px 16px; cursor: pointer; font-size: 13px; color: #ccc; background: #111; border-radius: 6px; }
+    summary:hover { background: #161616; }
+    details[open] summary { border-bottom: 1px solid #1e1e1e; border-radius: 6px 6px 0 0; }
+    .finding-detail { padding: 16px; font-size: 12px; line-height: 1.8; color: #aaa; }
+    .graph-wrapper { display: flex; gap: 0; }
+    #graph-container { flex: 1; min-width: 0; height: 600px; background: #080808; border-radius: 8px 0 0 8px; overflow: hidden; }
+    .report-sidebar { width: 240px; flex-shrink: 0; background: #0a0a0a; border: 1px solid #1e1e1e; border-left: none; border-radius: 0 8px 8px 0; padding: 20px 16px; font-size: 12px; overflow-y: auto; max-height: 600px; box-sizing: border-box; }
+    .report-sidebar h3 { font-size: 11px; text-transform: uppercase; letter-spacing: 1.2px; color: #555; margin: 0 0 12px 0; }
+    .report-sidebar hr { border: none; border-top: 1px solid #1e1e1e; margin: 8px 0; }
+    .sidebar-row { display: flex; justify-content: space-between; align-items: center; padding: 3px 0; }
+    .sidebar-row .lbl { color: #888; }
+    .sidebar-row .val { font-weight: 700; font-size: 13px; }
+    .schema-item { display: flex; align-items: center; gap: 10px; padding: 4px 0; }
+    .schema-item svg { flex-shrink: 0; }
+    .schema-item span { color: #aaa; font-size: 11px; }
+    footer { padding: 24px 40px; text-align: center; font-size: 12px; color: #333; }
+    footer a { color: #444; text-decoration: none; }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>👻 Ghostflow — Security Audit Report</h1>
+  <span>{{WORKSPACE_NAME}} &nbsp;·&nbsp; {{TIMESTAMP}}</span>
+</header>
+
+<!-- SECTION 1: Executive Summary -->
+<div class="section">
+  <h2>Executive Summary</h2>
+  <div class="summary-grid">
+    <div class="summary-card critical"><div class="count">{{COUNT_CRITICAL}}</div><div class="label">Critical</div></div>
+    <div class="summary-card high"><div class="count">{{COUNT_HIGH}}</div><div class="label">High</div></div>
+    <div class="summary-card medium"><div class="count">{{COUNT_MEDIUM}}</div><div class="label">Medium</div></div>
+    <div class="summary-card low"><div class="count">{{COUNT_LOW}}</div><div class="label">Low</div></div>
+  </div>
+  <div style="margin-top: 16px; font-size: 13px; color: #555;">
+    {{COUNT_TAINTED}} tainted paths &nbsp;·&nbsp; {{COUNT_SANITIZED}} sanitized &nbsp;·&nbsp; {{COUNT_FILES}} files scanned
+  </div>
+</div>
+
+<!-- SECTION 2: Threat Table -->
+<div class="section">
+  <h2>Threat Findings</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Severity</th>
+        <th>CWE</th>
+        <th>Name</th>
+        <th>OWASP</th>
+        <th>File</th>
+        <th>Line</th>
+        <th>Remediation</th>
+      </tr>
+    </thead>
+    <tbody>
+      {{THREATS_TABLE_ROWS}}
+    </tbody>
+  </table>
+</div>
+
+<!-- SECTION 3: Embedded Graph -->
+<div class="section">
+  <h2>Data Flow Map</h2>
+  <div class="graph-wrapper">
+    <div id="graph-container"></div>
+    <div class="report-sidebar">
+      <h3>Scan Summary</h3>
+      <div id="sidebar-summary"></div>
+      <hr>
+      <h3>Schema Key</h3>
+      <div id="sidebar-schema"></div>
+    </div>
+  </div>
+</div>
+
+<!-- SECTION 4: Raw Findings by File -->
+<div class="section">
+  <h2>Findings by File</h2>
+  {{FINDINGS_BY_FILE}}
+</div>
+
+<footer>
+  Generated by <a href="https://github.com/cchoiyon/Ghostflow">Ghostflow</a> &nbsp;·&nbsp; {{TIMESTAMP}}
+</footer>
+
+<script>
+{{D3_LIBRARY}}
+</script>
+
+<script>
+const nodes = /*{{NODES_JSON}}*/ [];
+const edges = /*{{EDGES_JSON}}*/ [];
+
+/**
+ * Renders the embedded D3.js force-directed graph inside #graph-container.
+ * Deferred to DOMContentLoaded so the container has a computed layout (non-zero dimensions).
+ * Falls back to 900x600 if clientWidth/Height are still 0 (file:// edge case).
+ * Supports pan, zoom, and node dragging.
+ */
+document.addEventListener('DOMContentLoaded', function renderGraph() {
+  if (!nodes.length) return;
+
+  var container = document.getElementById('graph-container');
+  var width  = container.clientWidth  || 660;
+  var height = container.clientHeight || 600;
+
+  var svg = d3.select('#graph-container')
+    .append('svg')
+    .attr('width', width)
+    .attr('height', height)
+    .attr('viewBox', '0 0 ' + width + ' ' + height)
+    .style('cursor', 'grab');
+
+  // Zoom/pan container — all graph elements go inside this <g>
+  var g = svg.append('g').attr('class', 'graph');
+
+  svg.call(d3.zoom()
+    .scaleExtent([0.1, 4])
+    .on('zoom', function(event) {
+      g.attr('transform', event.transform);
+    })
+  ).on('mousedown.zoom', function() { svg.style('cursor', 'grabbing'); })
+   .on('mouseup.zoom',   function() { svg.style('cursor', 'grab'); });
+
+  // Arrowhead markers
+  var defs = svg.append('defs');
+  [['marker-tainted','#ff3b3b'],['marker-sanitized','#4caf50'],['marker-neutral','#555']].forEach(function(m) {
+    defs.append('marker').attr('id', m[0]).attr('viewBox','0 -5 10 10')
+      .attr('refX',18).attr('refY',0).attr('orient','auto')
+      .attr('markerWidth',6).attr('markerHeight',6)
+      .append('path').attr('d','M0,-4L8,0L0,4').attr('fill', m[1]);
+  });
+
+  // Filter orphan edges
+  var nodeIdSet = new Set(nodes.map(function(n) { return n.id; }));
+  var totalBefore = edges.length;
+  var validEdges = edges.filter(function(e) {
+    var src = typeof e.source === 'object' ? e.source.id : e.source;
+    var tgt = typeof e.target === 'object' ? e.target.id : e.target;
+    return nodeIdSet.has(src) && nodeIdSet.has(tgt);
+  });
+  var removed = totalBefore - validEdges.length;
+  if (removed > 0) console.log('[Ghostflow Report] Removed ' + removed + ' orphan edge(s)');
+
+  // Build a lookup for fast filePath resolution during link distance calc
+  var nodeById = {};
+  nodes.forEach(function(n) { nodeById[n.id] = n; });
+
+  // Seed initial positions — spread each file's nodes in a different
+  // angular sector around the center so clusters start already separated
+  var uniqueFiles = Array.from(new Set(nodes.map(function(n) { return n.filePath; })));
+  var angleStep = (2 * Math.PI) / (uniqueFiles.length || 1);
+  var clusterRadius = Math.min(width, height) * 0.3;
+  nodes.forEach(function(n) {
+    var fileIdx = uniqueFiles.indexOf(n.filePath);
+    var angle = fileIdx * angleStep;
+    n.x = (width / 2) + Math.cos(angle) * clusterRadius + (Math.random() - 0.5) * 30;
+    n.y = (height / 2) + Math.sin(angle) * clusterRadius + (Math.random() - 0.5) * 30;
+  });
+
+  var simulation = d3.forceSimulation(nodes)
+    .force('link', d3.forceLink(validEdges)
+      .id(function(d) { return d.id; })
+      .distance(function(d) {
+        var srcFp = (typeof d.source === 'object' ? d.source.filePath : (nodeById[d.source] || {}).filePath) || '';
+        var tgtFp = (typeof d.target === 'object' ? d.target.filePath : (nodeById[d.target] || {}).filePath) || '';
+        return srcFp === tgtFp ? 60 : 200;
+      })
+    )
+    .force('charge', d3.forceManyBody().strength(-400))
+    .force('center', d3.forceCenter(width / 2, height / 2))
+    .force('collision', d3.forceCollide().radius(30))
+    .force('fileCluster', function(alpha) {
+      for (var i = 0; i < nodes.length; i++) {
+        for (var j = i + 1; j < nodes.length; j++) {
+          var a = nodes[i], b = nodes[j];
+          if (a.filePath !== b.filePath) {
+            var dx = a.x - b.x;
+            var dy = a.y - b.y;
+            var dist = Math.sqrt(dx * dx + dy * dy) || 1;
+            if (dist < 180) {
+              var force = (180 - dist) / dist * alpha * 0.8;
+              a.x += dx * force; a.y += dy * force;
+              b.x -= dx * force; b.y -= dy * force;
+            }
+          }
+        }
+      }
+    })
+    .alphaDecay(0.04)
+    .velocityDecay(0.5)
+    .alphaMin(0.01);
+
+  var colorMap = {
+    critical: '#ff3b3b', high: '#ff7c00', medium: '#f5c518',
+    low: '#4fc3f7', safe: '#2a2a2a'
+  };
+
+  // ── Utility functions ──────────────────────────────────────────────
+  var hullPalette = ['#4fc3f7','#81c784','#ffb74d','#f06292','#ce93d8','#80cbc4','#fff176','#ffcc02','#a5d6a7','#ef9a9a','#90caf9','#ffe082'];
+
+  /** Returns points if >= 3, else null (not enough for a convex hull) */
+  function safeHull(points) { return points.length >= 3 ? points : null; }
+
+  /** Expand each hull vertex outward from centroid by padding px */
+  function expandHull(hull, padding) {
+    var cx = d3.mean(hull, function(p) { return p[0]; });
+    var cy = d3.mean(hull, function(p) { return p[1]; });
+    return hull.map(function(p) {
+      var dx = p[0] - cx, dy = p[1] - cy;
+      var len = Math.sqrt(dx * dx + dy * dy) || 1;
+      return [p[0] + (dx / len) * padding, p[1] + (dy / len) * padding];
+    });
+  }
+
+  // ── SVG Layer ordering (bottom → top): hulls, edges, nodes ────────
+  // Groups are appended in this order so hulls render BEHIND everything
+  var hullLayer = g.append('g').attr('class', 'hull-layer');
+  var edgeLayer = g.append('g').attr('class', 'edge-layer');
+  var nodeLayer = g.append('g').attr('class', 'node-layer');
+
+  // ── Pre-compute file groups for hull rendering ────────────────────
+  var fileGroups = d3.group(nodes, function(d) { return d.filePath; });
+  var fileEntries = Array.from(fileGroups.entries()); // [[filePath, [nodes]], ...]
+
+  // Create persistent hull elements — one per file group
+  fileEntries.forEach(function(entry, idx) {
+    var fp = entry[0];
+    var color = hullPalette[idx % hullPalette.length];
+    var fileName = fp.split(/[\\\/]/).pop();
+    var groupNodes = entry[1];
+
+    if (groupNodes.length < 3) {
+      // Fallback: circle for singleton/pair files
+      hullLayer.append('circle')
+        .attr('class', 'hull-fallback')
+        .datum(entry)
+        .attr('r', 40)
+        .attr('fill', color).attr('fill-opacity', 0.07)
+        .attr('stroke', color).attr('stroke-opacity', 0.3)
+        .attr('stroke-width', 1.5).attr('stroke-dasharray', '6,3');
+      hullLayer.append('text')
+        .attr('class', 'hull-label-fallback')
+        .datum(entry)
+        .attr('font-size', '11px').attr('opacity', 0.6).attr('fill', color)
+        .text(fileName);
+    } else {
+      // Full hull path for 3+ node groups
+      hullLayer.append('path')
+        .attr('class', 'hull-path')
+        .datum(entry)
+        .attr('fill', color).attr('fill-opacity', 0.07)
+        .attr('stroke', color).attr('stroke-opacity', 0.3)
+        .attr('stroke-width', 1.5).attr('stroke-dasharray', '6,3');
+      hullLayer.append('text')
+        .attr('class', 'hull-label')
+        .datum(entry)
+        .attr('font-size', '11px').attr('opacity', 0.6).attr('fill', color)
+        .text(fileName);
+    }
+  });
+
+  // ── Edge rendering ────────────────────────────────────────────────
+  var edgeStroke = function(d) { return d.tainted ? '#ff3b3b' : '#555'; };
+  var edgeWidth  = function(d) { return d.tainted ? 2 : 1; };
+  var edgeDash   = function(d) { return d.tainted ? 'none' : '4,4'; };
+  var edgeMarker = function(d) { return d.tainted ? 'url(#marker-tainted)' : 'url(#marker-neutral)'; };
+
+  var link = edgeLayer.selectAll('line')
+    .data(validEdges).enter().append('line')
+    .attr('stroke', edgeStroke)
+    .attr('stroke-width', edgeWidth)
+    .attr('stroke-dasharray', edgeDash)
+    .attr('stroke-opacity', 0.6)
+    .attr('marker-end', edgeMarker);
+
+  // ── Node rendering ────────────────────────────────────────────────
+  function dragStarted(event, d) {
+    if (!event.active) simulation.alphaTarget(0.15).restart();
+    d.fx = d.x; d.fy = d.y;
+  }
+  function dragged(event, d) { d.fx = event.x; d.fy = event.y; }
+  function dragEnded(event, d) {
+    if (!event.active) simulation.alphaTarget(0);
+    d.fx = null; d.fy = null;
+  }
+
+  var nodeG = nodeLayer.selectAll('g')
+    .data(nodes).enter().append('g')
+    .style('cursor', 'pointer')
+    .call(d3.drag().on('start', dragStarted).on('drag', dragged).on('end', dragEnded));
+
+  var symbolMap = {
+    source: d3.symbolTriangle, sink: d3.symbolSquare,
+    sanitizer: d3.symbolStar, sdk: d3.symbolDiamond, logic: d3.symbolCircle
+  };
+  var sizeMap = { critical: 320, high: 240, medium: 180, low: 140, safe: 100 };
+  function getSymbol(d) { return symbolMap[d.nodeType] || d3.symbolCircle; }
+  function getSize(d) { return sizeMap[d.riskLevel] || 100; }
+
+  nodeG.append('path')
+    .attr('d', function(d) { return d3.symbol().type(getSymbol(d)).size(getSize(d))(); })
+    .attr('fill', function(d) { return colorMap[d.riskLevel] || '#2a2a2a'; })
+    .attr('stroke', '#222')
+    .attr('stroke-width', 1.5);
+
+  nodeG.append('text')
+    .attr('dy', -14).attr('text-anchor', 'middle')
+    .attr('font-size', '10px').attr('fill', '#ccc')
+    .text(function(d) { return d.label || ''; });
+
+  // ── Tick handler ──────────────────────────────────────────────────
+  simulation.on('tick', function() {
+    // Update hull paths (3+ node groups)
+    hullLayer.selectAll('.hull-path').attr('d', function(d) {
+      var pts = d[1].map(function(n) { return [n.x, n.y]; });
+      var safe = safeHull(pts);
+      if (!safe) return null;
+      var hull = d3.polygonHull(safe);
+      if (!hull) return null;
+      var expanded = expandHull(hull, 12);
+      return 'M' + expanded.map(function(p) { return p[0] + ',' + p[1]; }).join('L') + 'Z';
+    });
+
+    // Update hull labels (3+ node groups)
+    hullLayer.selectAll('.hull-label').each(function(d) {
+      var pts = d[1].map(function(n) { return [n.x, n.y]; });
+      var safe = safeHull(pts);
+      if (!safe) return;
+      var hull = d3.polygonHull(safe);
+      if (!hull) return;
+      var expanded = expandHull(hull, 12);
+      var minX = d3.min(expanded, function(p) { return p[0]; });
+      var minY = d3.min(expanded, function(p) { return p[1]; });
+      d3.select(this).attr('x', minX).attr('y', minY - 6);
+    });
+
+    // Update fallback circles (< 3 node groups)
+    hullLayer.selectAll('.hull-fallback').each(function(d) {
+      var cx = d3.mean(d[1], function(n) { return n.x; });
+      var cy = d3.mean(d[1], function(n) { return n.y; });
+      d3.select(this).attr('cx', cx).attr('cy', cy);
+    });
+
+    // Update fallback labels
+    hullLayer.selectAll('.hull-label-fallback').each(function(d) {
+      var cx = d3.mean(d[1], function(n) { return n.x; });
+      var cy = d3.mean(d[1], function(n) { return n.y; });
+      d3.select(this).attr('x', cx - 40).attr('y', cy - 45);
+    });
+
+    // Update edges
+    link.each(function(d) {
+      var el = d3.select(this);
+      var sx = d.source.x, sy = d.source.y, tx = d.target.x, ty = d.target.y;
+      if (sx == null || sy == null || tx == null || ty == null || isNaN(sx) || isNaN(sy) || isNaN(tx) || isNaN(ty)) {
+        el.attr('display', 'none');
+      } else {
+        el.attr('display', null).attr('x1', sx).attr('y1', sy).attr('x2', tx).attr('y2', ty);
+      }
+    });
+
+    // Update nodes
+    nodeG.attr('transform', function(d) { return 'translate(' + d.x + ',' + d.y + ')'; });
+  });
+
+  // ── Populate sidebar ──────────────────────────────────────────────
+  var summaryEl = document.getElementById('sidebar-summary');
+  var critical = nodes.filter(function(n) { return n.riskLevel === 'critical'; }).length;
+  var high     = nodes.filter(function(n) { return n.riskLevel === 'high'; }).length;
+  var medium   = nodes.filter(function(n) { return n.riskLevel === 'medium'; }).length;
+  var low      = nodes.filter(function(n) { return n.riskLevel === 'low'; }).length;
+  var tainted  = validEdges.filter(function(e) { return e.tainted; }).length;
+  var sanitized = validEdges.filter(function(e) { return e.secure; }).length;
+  var fileCount = new Set(nodes.map(function(n) { return n.filePath; })).size;
+
+  var summaryRows = [
+    { lbl: '● Critical nodes', val: critical, color: '#ff3b3b' },
+    { lbl: '● High nodes',     val: high,     color: '#ff7c00' },
+    { lbl: '● Medium nodes',   val: medium,   color: '#f5c518' },
+    { lbl: '● Low nodes',      val: low,      color: '#4fc3f7' },
+    { lbl: '➡ Tainted paths',  val: tainted,  color: '#ff3b3b' },
+    { lbl: '✅ Sanitized',     val: sanitized, color: '#4caf50' },
+    { lbl: '📄 Files scanned', val: fileCount, color: '#aaa' },
+  ];
+  summaryRows.forEach(function(row) {
+    var div = document.createElement('div');
+    div.className = 'sidebar-row';
+    var lbl = document.createElement('span');
+    lbl.className = 'lbl'; lbl.textContent = row.lbl;
+    var val = document.createElement('span');
+    val.className = 'val'; val.textContent = row.val; val.style.color = row.color;
+    div.appendChild(lbl); div.appendChild(val);
+    summaryEl.appendChild(div);
+  });
+
+  // Schema Key — render actual D3 symbols at size 60
+  var schemaEl = document.getElementById('sidebar-schema');
+  var schemaItems = [
+    { type: d3.symbolTriangle, label: 'Source',    color: '#888888' },
+    { type: d3.symbolSquare,   label: 'Sink',      color: '#888888' },
+    { type: d3.symbolStar,     label: 'Sanitizer', color: '#888888' },
+    { type: d3.symbolDiamond,  label: 'SDK',       color: '#888888' },
+    { type: d3.symbolCircle,   label: 'Logic',     color: '#888888' },
+  ];
+  schemaItems.forEach(function(item) {
+    var row = document.createElement('div');
+    row.className = 'schema-item';
+    var svgNs = 'http://www.w3.org/2000/svg';
+    var s = document.createElementNS(svgNs, 'svg');
+    s.setAttribute('width', '24'); s.setAttribute('height', '24');
+    s.setAttribute('viewBox', '-12 -12 24 24');
+    var p = document.createElementNS(svgNs, 'path');
+    p.setAttribute('d', d3.symbol().type(item.type).size(60)());
+    p.setAttribute('fill', item.color);
+    s.appendChild(p);
+    var lbl = document.createElement('span');
+    lbl.textContent = item.label;
+    row.appendChild(s); row.appendChild(lbl);
+    schemaEl.appendChild(row);
+  });
+});
+</script>
+
+
+</body>
+</html>

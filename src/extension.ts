@@ -1,17 +1,20 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
-import { FlowGraph } from './FlowGraph';
-import { Scanner } from './Scanner';
-import { ProjectScanner } from './ProjectScanner';
-import { VisualizerProvider } from './VisualizerProvider';
-import { ThreatAnalyzer, ThreatSeverity } from './ThreatAnalyzer';
-import { ThreatReportProvider } from './ThreatReportProvider';
-import { ReportGenerator } from './ReportGenerator';
+import { FlowGraph } from './core/FlowGraph';
+import { Scanner } from './core/Scanner';
+import { ProjectScanner } from './core/ProjectScanner';
+import { VisualizerProvider } from './providers/VisualizerProvider';
+import { ThreatAnalyzer, ThreatSeverity } from './core/ThreatAnalyzer';
+import { ThreatReportProvider } from './providers/ThreatReportProvider';
+import { ReportGenerator } from './export/ReportGenerator';
+import { exportHtmlReport } from './export/htmlReportGenerator';
 
 let diagnosticCollection: vscode.DiagnosticCollection;
 let ghostflowOutputChannel: vscode.OutputChannel;
 let healthStatusBar: vscode.StatusBarItem;
+// Trigger refresh: 2026-03-27
+
 
 /**
  * Activates the extension. Called when onStartupFinished is fired.
@@ -72,7 +75,7 @@ export function activate(context: vscode.ExtensionContext) {
 
         const activeFile = vscode.window.activeTextEditor?.document.fileName ?? 'Unknown';
         const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-        
+
         // If a workspace scan is active (i.e. graph has nodes from multiple files or we have a workspace folder),
         // prioritize the workspace folder name over the active text editor's filename to prevent misattribution.
         const fileName = workspaceFolder ? workspaceFolder.name : path.basename(activeFile);
@@ -127,10 +130,10 @@ export function activate(context: vscode.ExtensionContext) {
         if (document.languageId === 'typescript' || document.languageId === 'javascript') {
             const fileName = document.fileName;
             // Ignore test files and type definitions to reduce noise
-            if (fileName.endsWith('.test.ts') || 
-                fileName.endsWith('.spec.ts') || 
-                fileName.endsWith('.test.js') || 
-                fileName.endsWith('.spec.js') || 
+            if (fileName.endsWith('.test.ts') ||
+                fileName.endsWith('.spec.ts') ||
+                fileName.endsWith('.test.js') ||
+                fileName.endsWith('.spec.js') ||
                 fileName.endsWith('.d.ts')) {
                 return;
             }
@@ -141,7 +144,22 @@ export function activate(context: vscode.ExtensionContext) {
         }
     });
 
-    context.subscriptions.push(scanCommand, scanWorkspaceCommand, onSaveEvent);
+    /**
+     * Exports an HTML audit report from the current scan state.
+     * Guards against export before any scan has been run.
+     */
+    const exportReportCommand = vscode.commands.registerCommand('ghostflow.exportReport', async () => {
+        const nodes = graph.getNodes();
+        if (nodes.length === 0) {
+            vscode.window.showWarningMessage('Ghostflow: Run a scan before exporting a report.');
+            return;
+        }
+        const edges = graph.getEdges();
+        const threats = threatAnalyzer.analyze(graph);
+        await exportHtmlReport(nodes, edges, threats, context.extensionUri);
+    });
+
+    context.subscriptions.push(scanCommand, scanWorkspaceCommand, exportReportCommand, onSaveEvent);
 
     // Automatically trigger scan on the currently active document
     if (vscode.window.activeTextEditor) {
@@ -166,63 +184,83 @@ async function performScan(
 ): Promise<void> {
     ghostflowOutputChannel.appendLine(`[${new Date().toLocaleTimeString()}] Scanning ${document.fileName}...`);
 
-    try {
-        await scanner.scanDocument(document);
+    await vscode.window.withProgress({
+        location: vscode.ProgressLocation.Notification,
+        title: 'Ghostflow',
+        cancellable: false,
+    }, async (progress) => {
+        try {
+            // Step 1 — AST extraction (0 → 25%)
+            progress.report({ message: 'Extracting AST...', increment: 0 });
+            await new Promise<void>(resolve => setImmediate(resolve));
 
-        const nodes = graph.getNodes();
-        const threats = threatAnalyzer.analyze(graph);
-        const diagnostics: vscode.Diagnostic[] = [];
+            await scanner.scanDocument(document);
+            progress.report({ message: 'Indexing taint sources...', increment: 25 });
+            await new Promise<void>(resolve => setImmediate(resolve));
 
-        threats.forEach(threat => {
-            if (threat.filePath === document.fileName) {
-                const startPos = new vscode.Position(threat.line, threat.character);
-                const endPos = new vscode.Position(threat.line, Math.max(0, threat.character + 10)); // Approximate width
-                const range = new vscode.Range(startPos, endPos);
+            // Step 2 → 3 — Taint source indexing & flow resolution (25 → 75%)
+            const nodes = graph.getNodes();
+            progress.report({ message: 'Resolving flows...', increment: 25 });
+            await new Promise<void>(resolve => setImmediate(resolve));
 
-                const severity = (threat.severity === ThreatSeverity.Critical || threat.severity === ThreatSeverity.High)
-                    ? vscode.DiagnosticSeverity.Error
-                    : vscode.DiagnosticSeverity.Warning;
+            // Step 4 — Threat analysis / graph build (75 → 100%)
+            const threats = threatAnalyzer.analyze(graph);
+            progress.report({ message: 'Building graph...', increment: 25 });
+            await new Promise<void>(resolve => setImmediate(resolve));
 
-                const diagnostic = new vscode.Diagnostic(
-                    range,
-                    `Ghostflow Threat [${threat.category}]: ${threat.message}`,
-                    severity
-                );
-                diagnostics.push(diagnostic);
+            const diagnostics: vscode.Diagnostic[] = [];
+
+            threats.forEach(threat => {
+                if (threat.filePath === document.fileName) {
+                    const startPos = new vscode.Position(threat.line, threat.character);
+                    const endPos = new vscode.Position(threat.line, Math.max(0, threat.character + 10));
+                    const range = new vscode.Range(startPos, endPos);
+
+                    const severity = (threat.severity === ThreatSeverity.Critical || threat.severity === ThreatSeverity.High)
+                        ? vscode.DiagnosticSeverity.Error
+                        : vscode.DiagnosticSeverity.Warning;
+
+                    const diagnostic = new vscode.Diagnostic(
+                        range,
+                        `Ghostflow Threat [${threat.category}]: ${threat.message}`,
+                        severity
+                    );
+                    diagnostics.push(diagnostic);
+                }
+            });
+
+            diagnosticCollection.set(document.uri, diagnostics);
+            ghostflowOutputChannel.appendLine(`[${new Date().toLocaleTimeString()}] Scan complete. Found ${nodes.length} trust boundaries and ${diagnostics.length} threats in this file.`);
+
+            // Sync Sidebar Visualizer with analytical findings
+            visualizerProvider.update(graph, threats);
+
+            // Update STRIDE Threat Report
+            threatReportProvider.updateThreats(threats);
+
+            // Update Status Bar Health Score
+            const critical = threats.filter(t => t.severity === ThreatSeverity.Critical).length;
+            const high = threats.filter(t => t.severity === ThreatSeverity.High).length;
+            const riskCount = critical + high;
+
+            if (riskCount > 0) {
+                healthStatusBar.text = `$(shield) ${riskCount} High Risk${riskCount > 1 ? 's' : ''}`;
+                healthStatusBar.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground');
+            } else if (threats.length > 0) {
+                healthStatusBar.text = `$(shield) ${threats.length} Finding${threats.length > 1 ? 's' : ''}`;
+                healthStatusBar.backgroundColor = undefined;
+            } else {
+                healthStatusBar.text = '$(shield) Secure';
+                healthStatusBar.backgroundColor = undefined;
             }
-        });
 
-        diagnosticCollection.set(document.uri, diagnostics);
-        ghostflowOutputChannel.appendLine(`[${new Date().toLocaleTimeString()}] Scan complete. Found ${nodes.length} trust boundaries and ${diagnostics.length} threats in this file.`);
-
-        // Update Sidebar Visualizer
-        visualizerProvider.update(graph);
-
-        // Update STRIDE Threat Report
-        threatReportProvider.updateThreats(threats);
-
-        // Update Status Bar Health Score
-        const critical = threats.filter(t => t.severity === ThreatSeverity.Critical).length;
-        const high = threats.filter(t => t.severity === ThreatSeverity.High).length;
-        const riskCount = critical + high;
-
-        if (riskCount > 0) {
-            healthStatusBar.text = `$(shield) ${riskCount} High Risk${riskCount > 1 ? 's' : ''}`;
-            healthStatusBar.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground');
-        } else if (threats.length > 0) {
-            healthStatusBar.text = `$(shield) ${threats.length} Finding${threats.length > 1 ? 's' : ''}`;
-            healthStatusBar.backgroundColor = undefined;
-        } else {
-            healthStatusBar.text = '$(shield) Secure';
-            healthStatusBar.backgroundColor = undefined;
+            ghostflowOutputChannel.appendLine(`[${new Date().toLocaleTimeString()}] Threat analysis complete. ${threats.length} findings, ${riskCount} high-risk.`);
+        } catch (error) {
+            const msg = error instanceof Error ? error.message : String(error);
+            vscode.window.showErrorMessage(`Ghostflow Scan Failed: ${msg}`);
+            ghostflowOutputChannel.appendLine(`Error during scan: ${msg}`);
         }
-
-        ghostflowOutputChannel.appendLine(`[${new Date().toLocaleTimeString()}] Threat analysis complete. ${threats.length} findings, ${riskCount} high-risk.`);
-    } catch (error) {
-        const msg = error instanceof Error ? error.message : String(error);
-        vscode.window.showErrorMessage(`Ghostflow Scan Failed: ${msg}`);
-        ghostflowOutputChannel.appendLine(`Error during scan: ${msg}`);
-    }
+    });
 }
 
 /**
@@ -249,17 +287,17 @@ async function performWorkspaceScan(
         cancellable: true
     }, async (progress, token) => {
         progress.report({ message: "Discovering files..." });
-        
+
         // Find all TS/JS files, ignoring node_modules, dist, and compiled build output directories (.NET obj/bin)
         const uris = await vscode.workspace.findFiles('**/*.{ts,js}', '{**/node_modules/**,**/dist/**,**/.git/**,**/bin/**,**/obj/**,**/out/**,**/build/**}');
-        
+
         if (uris.length === 0) {
             vscode.window.showInformationMessage('Ghostflow: No TypeScript or JavaScript files found.');
             return;
         }
 
         const documents: vscode.TextDocument[] = [];
-        
+
         for (let i = 0; i < uris.length; i++) {
             if (token.isCancellationRequested) {
                 ghostflowOutputChannel.appendLine(`[${new Date().toLocaleTimeString()}] Workspace scan cancelled by user.`);
@@ -268,7 +306,7 @@ async function performWorkspaceScan(
 
             // Yield to event loop to keep UI responsive while opening documents
             await new Promise(resolve => setImmediate(resolve));
-            
+
             try {
                 const doc = await vscode.workspace.openTextDocument(uris[i]);
                 documents.push(doc);
@@ -280,23 +318,23 @@ async function performWorkspaceScan(
         }
 
         progress.report({ message: "Analyzing ASTs and tracking deep data flows globally...", increment: 50 });
-        
+
         try {
             const startTime = Date.now();
             await scanner.scanDocuments(documents);
-            
+
             progress.report({ message: "Generating global architecture map...", increment: 90 });
-            
+
             const nodes = graph.getNodes();
             const threats = threatAnalyzer.analyze(graph);
-            
+
             // Group threats by file and set diagnostics globally
             diagnosticCollection.clear();
             const diagnosticsByFile = new Map<string, vscode.Diagnostic[]>();
-            
+
             threats.forEach(threat => {
                 const fileDiags = diagnosticsByFile.get(threat.filePath) ?? [];
-                
+
                 const startPos = new vscode.Position(threat.line, threat.character);
                 const endPos = new vscode.Position(threat.line, Math.max(0, threat.character + 10)); // Approximate width
                 const range = new vscode.Range(startPos, endPos);
@@ -310,7 +348,7 @@ async function performWorkspaceScan(
                     `Ghostflow Threat [${threat.category}]: ${threat.message}`,
                     severity
                 );
-                
+
                 fileDiags.push(diagnostic);
                 diagnosticsByFile.set(threat.filePath, fileDiags);
             });
@@ -320,9 +358,9 @@ async function performWorkspaceScan(
             });
 
             // Update Sidebar Visualizer and Report
-            visualizerProvider.update(graph);
+            visualizerProvider.update(graph, threats);
             threatReportProvider.updateThreats(threats);
-            
+
             const critical = threats.filter(t => t.severity === ThreatSeverity.Critical).length;
             const high = threats.filter(t => t.severity === ThreatSeverity.High).length;
             const riskCount = critical + high;
@@ -340,7 +378,7 @@ async function performWorkspaceScan(
 
             const timeTaken = ((Date.now() - startTime) / 1000).toFixed(2);
             ghostflowOutputChannel.appendLine(`[${new Date().toLocaleTimeString()}] Global workspace scan complete in ${timeTaken}s. Found ${nodes.length} boundaries and ${threats.length} findings across ${documents.length} files.`);
-            
+
         } catch (error) {
             const msg = error instanceof Error ? error.message : String(error);
             vscode.window.showErrorMessage(`Ghostflow Global Scan Failed: ${msg}`);

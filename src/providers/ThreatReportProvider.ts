@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { ThreatEntry, StrideCategory, ThreatSeverity } from './ThreatAnalyzer';
+import { ThreatEntry, StrideCategory, ThreatSeverity } from '../core/ThreatAnalyzer';
 
 /**
  * Provides the Ghostflow Threat Report as a sidebar Webview in the Activity Bar.
