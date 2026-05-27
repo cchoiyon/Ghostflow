@@ -397,6 +397,9 @@
             }
         });
 
+        // Notify extension that the webview is fully loaded and ready to receive data
+        vscodeApi.postMessage({ command: 'ready' });
+
         edges.forEach(e => {
             e.source = e.from;
             e.target = e.to;

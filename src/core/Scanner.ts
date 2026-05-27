@@ -77,9 +77,10 @@ const DB_CALL_PREFIXES: ReadonlyArray<string> = [
 const DANGEROUS_SINKS: ReadonlyArray<string> = [
     // HTTP clients (all callers are also sinks for taint purposes)
     ...HTTP_CALLERS,
-    // File system writes
+    // File system writes and reads
     'fs.writeFile', 'fs.writeFileSync', 'fs.appendFile', 'fs.appendFileSync',
     'fs.createWriteStream', 'fsPromises.writeFile', 'fsPromises.appendFile',
+    'fs.readFile', 'fs.readFileSync', 'fs.createReadStream', 'fsPromises.readFile',
     // Logging / output
     'console.log', 'console.error', 'console.warn', 'console.info', 'console.debug',
     'logger.info', 'logger.warn', 'logger.error', 'logger.debug', 'logger.log',
@@ -334,130 +335,253 @@ export class Scanner {
      * Security implication: these variables are tracked for taint analysis
      * to detect when they flow into dangerous sinks.
      */
-    private collectSensitiveSources(node: ts.Node, document: vscode.TextDocument): void {
-        if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name)) {
-            const varName = node.name.text;
-            const lowerName = varName.toLowerCase();
-            
-            // 1. Check for semantic naming (hardcoded secret / credential patterns)
-            let isSensitive = SENSITIVE_PATTERNS.some(pattern => lowerName.includes(pattern));
-            let aliasSource: SensitiveSource | undefined = undefined;
-            let isSanitizedFlow = false;
-
-            // 2. Check for Taint Aliasing and Sanitization
-            if (node.initializer) {
-                // Direct assignment (const a = b)
-                if (ts.isIdentifier(node.initializer)) {
-                    const initName = node.initializer.text;
-                    aliasSource = this.sensitiveSources.find(s => s.varName === initName && s.nodeId.startsWith(document.fileName + ':'));
-                    if (aliasSource) {
-                        isSensitive = true;
-                        isSanitizedFlow = aliasSource.isSanitized || false;
-                    }
+    /**
+     * Helper to recursively extract all binding elements from a destructuring pattern.
+     */
+    private getBindingElements(pattern: ts.BindingPattern): ts.BindingElement[] {
+        const result: ts.BindingElement[] = [];
+        const visit = (p: ts.BindingPattern) => {
+            for (const el of p.elements) {
+                if (ts.isOmittedExpression(el)) {
+                    continue;
                 }
-                // Call expression (const a = encrypt(b))
-                else if (ts.isCallExpression(node.initializer)) {
-                    const callName = node.initializer.expression.getText().toLowerCase();
-                    const isSanitizer = SANITIZER_PATTERNS.some(p => callName.includes(p));
-                    
-                    for (const arg of node.initializer.arguments) {
-                        // Extract base identifier from nested call/property expressions (e.g. rawToken.trim())
-                        let baseArg: ts.Expression = arg;
-                        if (ts.isCallExpression(baseArg) && ts.isPropertyAccessExpression(baseArg.expression)) {
-                            baseArg = baseArg.expression.expression;
-                        }
-
-                        if (ts.isIdentifier(baseArg)) {
-                            aliasSource = this.sensitiveSources.find(s => s.varName === baseArg.text && s.nodeId.startsWith(document.fileName + ':'));
-                            if (aliasSource) {
-                                isSensitive = true;
-                                if (isSanitizer || aliasSource.isSanitized) {
-                                    isSanitizedFlow = true;
-                                }
-                                break;
-                            }
-                        }
-                    }
+                if (ts.isIdentifier(el.name)) {
+                    result.push(el);
+                } else if (el.name.kind === ts.SyntaxKind.ObjectBindingPattern || el.name.kind === ts.SyntaxKind.ArrayBindingPattern) {
+                    visit(el.name);
                 }
-                // Property access (const a = req.body.token) - check every segment in the chain
-                else if (ts.isPropertyAccessExpression(node.initializer)) {
-                    let current: ts.Expression = node.initializer;
-                    
-                    while (current && !isSensitive) {
-                        if (ts.isPropertyAccessExpression(current)) {
-                            // Check the property name at this level (e.g. 'token')
-                            const propName = current.name.text;
-                            aliasSource = this.sensitiveSources.find(s => s.varName === propName && s.nodeId.startsWith(document.fileName + ':'));
-                            if (aliasSource) {
-                                isSensitive = true;
-                                isSanitizedFlow = aliasSource.isSanitized || false;
-                                break;
-                            }
-                            current = current.expression;
-                        } else if (ts.isElementAccessExpression(current)) {
-                            current = current.expression;
-                        } else if (ts.isIdentifier(current)) {
-                            // Check the root identifier (e.g. 'req')
-                            const rootName = (current as ts.Identifier).text;
-                            aliasSource = this.sensitiveSources.find(s => s.varName === rootName && s.nodeId.startsWith(document.fileName + ':'));
-                            if (aliasSource) {
-                                isSensitive = true;
-                                isSanitizedFlow = aliasSource.isSanitized || false;
-                            }
-                            break;
-                        } else {
-                            break;
-                        }
+            }
+        };
+        visit(pattern);
+        return result;
+    }
+
+    /**
+     * Helper to register a variable in this.sensitiveSources and add it to the FlowGraph.
+     */
+    private registerSensitiveSource(
+        varName: string,
+        node: ts.Node,
+        document: vscode.TextDocument,
+        isSanitizedFlow: boolean,
+        aliasSource?: SensitiveSource
+    ): void {
+        const { line, character } = document.positionAt(node.getStart());
+        const nodeId = `${document.fileName}:${line}:${character}:${varName}`;
+
+        // Prevent duplicate registrations of the exact same variable at the same line/char
+        if (this.sensitiveSources.some(s => s.nodeId === nodeId)) {
+            return;
+        }
+
+        this.sensitiveSources.push({ 
+            varName, 
+            nodeId, 
+            line, 
+            character,
+            crossFileSource: aliasSource?.crossFileSource,
+            isSanitized: isSanitizedFlow
+        });
+
+        let reason = '';
+        if (aliasSource) {
+            reason = `Variable '${varName}' is an alias of tainted source '${aliasSource.varName}'`;
+        } else if (SENSITIVE_PATTERNS.some(p => varName.toLowerCase().includes(p))) {
+            const patternMatch = SENSITIVE_PATTERNS.find(p => varName.toLowerCase().includes(p));
+            reason = `Variable '${varName}' contains sensitive data (matches pattern: ${patternMatch})`;
+        } else {
+            reason = `Variable '${varName}' is assigned untrusted request input`;
+        }
+
+        // Add as a TaintSource node to the graph
+        this.graph.addNode({
+            id: nodeId,
+            type: NodeType.DataStore,
+            label: varName,
+            description: reason + (isSanitizedFlow ? ' (Secured via Sanitizer)' : ''),
+            filePath: document.fileName,
+            line,
+            character,
+            rawValue: varName,
+            isInternal: !!aliasSource // Aliases are internal (compressible)
+        });
+        
+        // If it's an alias, draw an edge from the original source to this new alias
+        if (aliasSource) {
+            this.graph.addEdge({
+                from: aliasSource.nodeId,
+                to: nodeId,
+                label: isSanitizedFlow ? 'Sanitized' : 'Aliased',
+                secure: isSanitizedFlow,
+                tainted: !isSanitizedFlow
+            });
+        }
+    }
+
+    /**
+     * Recursively analyzes an expression to determine if it is tainted,
+     * whether it has been sanitized, and which original source it came from.
+     */
+    private analyzeExpressionTaint(expr: ts.Expression, document: vscode.TextDocument): { isTainted: boolean; isSanitized: boolean; source?: SensitiveSource } {
+        let isTainted = false;
+        let isSanitized = false;
+        let foundSource: SensitiveSource | undefined = undefined;
+
+        const visit = (node: ts.Node, currentlySanitized: boolean, sanitizerName?: string) => {
+            let nextSanitized = currentlySanitized;
+            let nextSanitizerName = sanitizerName;
+
+            if (ts.isCallExpression(node)) {
+                const callName = node.expression.getText();
+                if (SANITIZER_PATTERNS.some(p => callName.toLowerCase().includes(p))) {
+                    nextSanitized = true;
+                    nextSanitizerName = callName;
+                }
+            }
+
+            if (ts.isIdentifier(node)) {
+                const name = node.text;
+                const src = this.sensitiveSources.find(s => s.varName === name && s.nodeId.startsWith(document.fileName + ':'));
+                if (src) {
+                    isTainted = true;
+                    const flowSecure = nextSanitized || src.isSanitized || false;
+                    if (flowSecure) {
+                        isSanitized = true;
                     }
-                    
-                    // Fallback semantic check on the entire string structure
-                    if (!isSensitive && node.initializer?.getText() && SENSITIVE_PATTERNS.some(pattern => node.initializer!.getText().toLowerCase().includes(pattern))) {
-                        isSensitive = true;
+                    if (!foundSource || (!flowSecure && foundSource.isSanitized)) {
+                        foundSource = src;
                     }
                 }
             }
 
-            if (isSensitive) {
-                const { line, character } = document.positionAt(node.getStart());
-                const nodeId = `${document.fileName}:${line}:${character}`;
+            if (ts.isExpression(node) && this.isRequestSource(node)) {
+                isTainted = true;
+                const flowSecure = nextSanitized || false;
+                if (flowSecure) {
+                    isSanitized = true;
+                }
+            }
 
-                this.sensitiveSources.push({ 
-                    varName, 
-                    nodeId, 
-                    line, 
-                    character,
-                    // If this was an alias, propagate the original crossFileSource if it exists
-                    crossFileSource: aliasSource?.crossFileSource,
-                    isSanitized: isSanitizedFlow
-                });
+            ts.forEachChild(node, child => visit(child, nextSanitized, nextSanitizerName));
+        };
 
-                const patternMatch = SENSITIVE_PATTERNS.find(p => lowerName.includes(p));
-                const reason = aliasSource 
-                    ? `Variable '${varName}' is an alias of tainted source '${aliasSource.varName}'`
-                    : `Variable '${varName}' contains sensitive data (matches pattern: ${patternMatch})`;
+        visit(expr, false);
+        return { isTainted, isSanitized, source: foundSource };
+    }
 
-                // Add as a TaintSource node to the graph
-                this.graph.addNode({
-                    id: nodeId,
-                    type: NodeType.DataStore,
-                    label: varName,
-                    description: reason + (isSanitizedFlow ? ' (Secured via Sanitizer)' : ''),
-                    filePath: document.fileName,
-                    line,
-                    character,
-                    rawValue: varName,
-                    isInternal: !!aliasSource // Aliases are internal (compressible)
-                });
+    /**
+     * Checks if an expression represents an untrusted request source (e.g. req.query, req.body).
+     */
+    private isRequestSource(expr: ts.Expression): boolean {
+        let current = expr;
+        while (ts.isParenthesizedExpression(current) || ts.isAsExpression(current) || current.kind === ts.SyntaxKind.TypeAssertionExpression) {
+            current = (current as ts.ParenthesizedExpression | ts.AsExpression | ts.TypeAssertion).expression;
+        }
+
+        while (ts.isPropertyAccessExpression(current) || ts.isElementAccessExpression(current)) {
+            if (ts.isPropertyAccessExpression(current)) {
+                const propName = current.name.text;
+                if (['query', 'body', 'headers', 'params', 'cookies'].includes(propName)) {
+                    const objText = current.expression.getText();
+                    if (objText === 'req' || objText === 'request') {
+                        return true;
+                    }
+                }
+                current = current.expression;
+            } else {
+                const arg = current.argumentExpression;
+                if (ts.isStringLiteral(arg) || ts.isNoSubstitutionTemplateLiteral(arg)) {
+                    const propName = arg.text;
+                    if (['query', 'body', 'headers', 'params', 'cookies'].includes(propName)) {
+                        const objText = current.expression.getText();
+                        if (objText === 'req' || objText === 'request') {
+                            return true;
+                        }
+                    }
+                }
+                current = current.expression;
+            }
+        }
+
+        const text = expr.getText();
+        const cleanText = text.replace(/\s+/g, '');
+        if (/^(req|request)\.(query|body|headers|params|cookies)\b/.test(cleanText) ||
+            /^(req|request)\[['"](query|body|headers|params|cookies)['"]\]/.test(cleanText)) {
+            return true;
+        }
+
+        return false;
+    }
+
+    /**
+     * Collects sensitive source variables from variable declarations and assignments.
+     * Tracks taint sources from sensitive semantic names, Request object properties
+     * (untrusted input), variable destructuring, and assignments/reassignments.
+     */
+    private collectSensitiveSources(node: ts.Node, document: vscode.TextDocument): void {
+        // --- 1. Handle Variable Declarations (both simple and destructuring) ---
+        if (ts.isVariableDeclaration(node)) {
+            const initializer = node.initializer;
+            
+            if (ts.isIdentifier(node.name)) {
+                const varName = node.name.text;
+                const lowerName = varName.toLowerCase();
                 
-                // If it's an alias, draw an edge from the original source to this new alias
-                if (aliasSource) {
-                    this.graph.addEdge({
-                        from: aliasSource.nodeId,
-                        to: nodeId,
-                        label: isSanitizedFlow ? 'Sanitized' : 'Aliased',
-                        secure: isSanitizedFlow,
-                        tainted: !isSanitizedFlow
-                    });
+                let isSensitive = SENSITIVE_PATTERNS.some(pattern => lowerName.includes(pattern));
+                let isSanitizedFlow = false;
+                let aliasSource: SensitiveSource | undefined = undefined;
+
+                if (initializer) {
+                    const taint = this.analyzeExpressionTaint(initializer, document);
+                    if (taint.isTainted) {
+                        isSensitive = true;
+                        isSanitizedFlow = taint.isSanitized;
+                        aliasSource = taint.source;
+                    }
+                }
+
+                if (isSensitive) {
+                    this.registerSensitiveSource(varName, node, document, isSanitizedFlow, aliasSource);
+                }
+            } 
+            else if (node.name.kind === ts.SyntaxKind.ObjectBindingPattern || node.name.kind === ts.SyntaxKind.ArrayBindingPattern) {
+                // Object/Array Destructuring, e.g. const { username, password } = req.body;
+                let isTaintedInit = false;
+                let isSanitizedInit = false;
+                let aliasSource: SensitiveSource | undefined = undefined;
+
+                if (initializer) {
+                    const taint = this.analyzeExpressionTaint(initializer, document);
+                    if (taint.isTainted) {
+                        isTaintedInit = true;
+                        isSanitizedInit = taint.isSanitized;
+                        aliasSource = taint.source;
+                    }
+                }
+
+                const elements = this.getBindingElements(node.name);
+                for (const el of elements) {
+                    const varName = (el.name as ts.Identifier).text;
+                    const lowerName = varName.toLowerCase();
+                    const isSensitiveName = SENSITIVE_PATTERNS.some(pattern => lowerName.includes(pattern));
+
+                    if (isTaintedInit || isSensitiveName) {
+                        // Taint propagates to destructured variable
+                        this.registerSensitiveSource(varName, el, document, isSanitizedInit, aliasSource);
+                    }
+                }
+            }
+        }
+        
+        // --- 2. Handle Binary Assignment Expressions (e.g. filePath += requestedFile) ---
+        else if (ts.isBinaryExpression(node)) {
+            const op = node.operatorToken.kind;
+            if ((op === ts.SyntaxKind.EqualsToken || op === ts.SyntaxKind.PlusEqualsToken) && ts.isIdentifier(node.left)) {
+                const varName = node.left.text;
+                const taint = this.analyzeExpressionTaint(node.right, document);
+                
+                if (taint.isTainted) {
+                    this.registerSensitiveSource(varName, node.left, document, taint.isSanitized, taint.source);
                 }
             }
         }

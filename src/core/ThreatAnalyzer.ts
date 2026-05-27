@@ -308,8 +308,7 @@ export class ThreatAnalyzer {
 
     /**
      * Maps a TaintedFlow to a Critical severity threat entry.
-     * Produces the message format: "Tainted Data Flow: Sensitive variable [X]
-     * reached network sink [Y] on Line [Z]."
+     * Produces a customized, highly accurate STRIDE threat entry based on the sink type.
      */
     private analyzeTaintedFlow(flow: TaintedFlow, nodes: FlowNode[], threats: ThreatEntry[]): void {
         const sinkNode = nodes.find(n => n.id === flow.sinkNodeId);
@@ -333,11 +332,51 @@ export class ThreatAnalyzer {
             sinkNodeId: flow.sinkNodeId
         };
 
+        // Determine sink type, StrideCategory, message details, and CWE overrides
+        let sinkType = 'network sink';
+        let category = StrideCategory.InformationDisclosure;
+        let cweId = 'CWE-200';
+        let cweName = 'Exposure of Sensitive Information to an Unauthorized Actor';
+        let owaspCategory = 'A02:2021 – Cryptographic Failures';
+        let remediation = `Sanitize or redact '${flow.sourceVar}' before passing it to '${flow.sinkName}'. Use environment-specific secrets, avoid logging sensitive values, and validate data at trust boundaries.`;
+
+        const nameLower = flow.sinkName.toLowerCase();
+        
+        if (nameLower.startsWith('fs.') || nameLower.startsWith('fspromises.') || ['readfile', 'writefile', 'createreadstream', 'createwritestream'].some(s => nameLower.includes(s))) {
+            sinkType = 'file system sink';
+            category = StrideCategory.InformationDisclosure;
+            cweId = 'CWE-22';
+            cweName = 'Improper Limitation of a Pathname to a Restricted Directory (\'Path Traversal\')';
+            owaspCategory = 'A01:2021 – Broken Access Control';
+            remediation = `Do not pass untrusted user input directly to file system operations. Sanitize paths using path.resolve() or path.basename(), and validate the target path against a strict allowlist.`;
+        } else if (['exec', 'spawn', 'eval', 'function', 'child_process'].some(s => nameLower.includes(s))) {
+            sinkType = 'code execution sink';
+            category = StrideCategory.ElevationOfPrivilege;
+            cweId = 'CWE-78';
+            cweName = 'OS Command Injection';
+            owaspCategory = 'A03:2021 – Injection';
+            remediation = `Never concatenate user input directly into commands. Use child_process.execFile() or spawn() with arguments as an array rather than running in a shell context.`;
+        } else if (nameLower.startsWith('console.') || nameLower.startsWith('logger.')) {
+            sinkType = 'logging sink';
+            category = StrideCategory.InformationDisclosure;
+            cweId = 'CWE-532';
+            cweName = 'Insertion of Sensitive Information into Log File';
+            owaspCategory = 'A09:2021 – Security Logging and Monitoring Failures';
+            remediation = `Ensure sensitive parameters are filtered, hashed, or completely removed before logging them to application logs.`;
+        } else if (nameLower.includes('query') || nameLower.includes('execute') || nameLower.startsWith('db.')) {
+            sinkType = 'database sink';
+            category = StrideCategory.Tampering;
+            cweId = 'CWE-89';
+            cweName = 'SQL Injection';
+            owaspCategory = 'A03:2021 – Injection';
+            remediation = `Use parameterized queries, ORM systems with built-in parameterization, or strictly validate and allowlist inputs before executing queries.`;
+        }
+
         threats.push(this.makeThreat(base,
-            StrideCategory.InformationDisclosure, ThreatSeverity.Critical,
-            `Tainted Data Flow: Sensitive variable '${flow.sourceVar}' reached network sink '${flow.sinkName}' on Line ${targetNode.line + 1}${crossFileNote}.`,
-            `Sanitize or redact '${flow.sourceVar}' before passing it to '${flow.sinkName}'. Use environment-specific secrets, avoid logging sensitive values, and validate data at trust boundaries.`,
-            { cweId: 'CWE-200', cweName: 'Exposure of Sensitive Information to an Unauthorized Actor', owaspCategory: 'A02:2021 – Cryptographic Failures' }
+            category, ThreatSeverity.Critical,
+            `Tainted Data Flow: Sensitive variable '${flow.sourceVar}' reached ${sinkType} '${flow.sinkName}' on Line ${targetNode.line + 1}${crossFileNote}.`,
+            remediation,
+            { cweId, cweName, owaspCategory }
         ));
     }
 }

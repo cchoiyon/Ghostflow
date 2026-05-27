@@ -14,6 +14,8 @@ import { ThreatEntry } from '../core/ThreatAnalyzer';
 export class VisualizerProvider implements vscode.WebviewViewProvider {
     public static readonly viewType = 'ghostflow.visualizerView';
     private _view?: vscode.WebviewView;
+    private _lastGraph?: FlowGraph;
+    private _lastThreats?: ThreatEntry[];
 
     constructor(private readonly _extensionUri: vscode.Uri) {}
 
@@ -46,6 +48,8 @@ export class VisualizerProvider implements vscode.WebviewViewProvider {
                 vscode.commands.executeCommand('ghostflow.scanWorkspace');
             } else if (message.command === 'downloadPNG') {
                 this._handleDownloadPNG(message.data);
+            } else if (message.command === 'ready') {
+                this._postCurrentData();
             }
         });
 
@@ -60,12 +64,27 @@ export class VisualizerProvider implements vscode.WebviewViewProvider {
      * @param threats - Array of ThreatEntry objects for severity mapping.
      */
     public update(graph: FlowGraph, threats: ThreatEntry[]): void {
+        this._lastGraph = graph;
+        this._lastThreats = threats;
+
         if (!this._view) return;
 
         // If the webview has lost its HTML (e.g. was hidden), re-set it
         if (!this._view.webview.html || this._view.webview.html.length < 100) {
             this._view.webview.html = this._getWebviewHtml();
         }
+
+        this._postCurrentData();
+    }
+
+    /**
+     * Renders and posts the current cached graph data to the webview.
+     */
+    private _postCurrentData(): void {
+        if (!this._view || !this._lastGraph || !this._lastThreats) return;
+
+        const graph = this._lastGraph;
+        const threats = this._lastThreats;
 
         // Transform nodes: compress, derive severity
         const allNodes = graph.getNodes();
